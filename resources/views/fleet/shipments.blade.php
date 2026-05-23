@@ -335,10 +335,33 @@
 
             {{-- Section: Route --}}
             <div style="font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border); margin-top:18px;">Route</div>
-            <div style="margin-bottom:12px;">
-                <label style="display:block; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--subtle); margin-bottom:6px;">Origin Address</label>
-                <input id="c_origin" type="text" placeholder="Warehouse / pickup location"
-                    style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 13px; font-family:var(--font-mono); font-size:13px; color:var(--text); outline:none;">
+
+            {{-- Origin: preset selector or manual --}}
+            <div style="margin-bottom:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <label style="font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--subtle);">Origin / Pickup</label>
+                    <button type="button" onclick="toggleOriginMode()" id="originModeToggle"
+                        style="font-size:10px; font-family:var(--font-mono); background:none; border:none; color:var(--accent); cursor:pointer; text-decoration:underline;">
+                        Type manually instead
+                    </button>
+                </div>
+
+                {{-- Preset selector --}}
+                <div id="originPresetWrap">
+                    <select id="c_origin_preset" onchange="applyOriginPreset()"
+                        style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 13px; font-family:var(--font-mono); font-size:13px; color:var(--text); outline:none;">
+                        <option value="">-- Select a preset origin --</option>
+                    </select>
+                    <div style="font-size:10px; color:var(--subtle); margin-top:5px;" id="originPresetDetail"></div>
+                </div>
+
+                {{-- Manual input (hidden by default) --}}
+                <div id="originManualWrap" style="display:none;">
+                    <input id="c_origin" type="text" placeholder="Warehouse / pickup location"
+                        style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 13px; font-family:var(--font-mono); font-size:13px; color:var(--text); outline:none;">
+                </div>
+
+                <input type="hidden" id="c_origin_address">
             </div>
             <div style="margin-bottom:14px;">
                 <label style="display:block; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--subtle); margin-bottom:6px;">Destination Address</label>
@@ -426,6 +449,16 @@
 
 @push('styles')
 <style>
+/* Match dashboard map style — OSM tiles + dark CSS filter */
+#createPickerMap .leaflet-tile-pane,
+#drawerMap .leaflet-tile-pane {
+    filter: brightness(0.65) saturate(0.7) hue-rotate(185deg);
+}
+#createPickerMap .leaflet-container,
+#drawerMap .leaflet-container {
+    background: #0a0b0e;
+}
+
 .filter-select, .filter-input {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -584,12 +617,20 @@ async function loadDrawer(id) {
 function initDrawerMap(s) {
     if (!drawerMap) {
         drawerMap = L.map('drawerMap', { zoomControl: true, attributionControl: false });
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(drawerMap);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(drawerMap);
     }
     drawerMap.eachLayer(l => { if (l instanceof L.Marker) drawerMap.removeLayer(l); });
 
-    const destIcon = L.divIcon({ html: '🏁', className: '', iconSize: [20, 20] });
-    const vehIcon  = L.divIcon({ html: '🚛', className: '', iconSize: [20, 20] });
+    const destIcon = L.divIcon({
+        className: '',
+        html: `<div style="width:12px;height:12px;border-radius:50%;background:#ef4444;border:2px solid #7f1d1d;box-shadow:0 0 6px #ef444488;"></div>`,
+        iconSize: [12, 12], iconAnchor: [6, 6],
+    });
+    const vehIcon = L.divIcon({
+        className: '',
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:#00e5ff;border:2px solid #00454f;box-shadow:0 0 8px #00e5ff88;"></div>`,
+        iconSize: [14, 14], iconAnchor: [7, 7],
+    });
 
     const points = [];
 
@@ -645,6 +686,61 @@ async function applyStatusOverride() {
     }
 }
 
+// ── Origin preset loader ──────────────────────────────────────────────────
+let originPresets  = [];
+let useOriginManual = false;
+
+async function loadOriginPresets() {
+    try {
+        const res  = await fetch('/fleet/api/origins');
+        originPresets = await res.json();
+        const sel  = document.getElementById('c_origin_preset');
+        sel.innerHTML = '<option value="">-- Select a preset origin --</option>';
+        originPresets.forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.id;
+            opt.textContent = o.name + ' — ' + o.address;
+            opt.dataset.address = o.address;
+            sel.appendChild(opt);
+        });
+    } catch(e) {
+        console.warn('Could not load origin presets', e);
+    }
+}
+
+function applyOriginPreset() {
+    const sel    = document.getElementById('c_origin_preset');
+    const opt    = sel.options[sel.selectedIndex];
+    const detail = document.getElementById('originPresetDetail');
+    const hidden = document.getElementById('c_origin_address');
+
+    if (sel.value && opt.dataset.address) {
+        hidden.value  = opt.dataset.address;
+        detail.textContent = opt.dataset.address;
+        detail.style.color = 'var(--text)';
+    } else {
+        hidden.value  = '';
+        detail.textContent = '';
+    }
+}
+
+function toggleOriginMode() {
+    useOriginManual = !useOriginManual;
+    document.getElementById('originPresetWrap').style.display = useOriginManual ? 'none'  : 'block';
+    document.getElementById('originManualWrap').style.display = useOriginManual ? 'block' : 'none';
+    document.getElementById('originModeToggle').textContent   = useOriginManual
+        ? 'Use preset instead'
+        : 'Type manually instead';
+
+    if (useOriginManual) {
+        document.getElementById('c_origin_address').value = '';
+        document.getElementById('c_origin_preset').value  = '';
+        document.getElementById('originPresetDetail').textContent = '';
+    } else {
+        document.getElementById('c_origin').value = '';
+    }
+}
+
 // ── Coordinate tab toggle ─────────────────────────────────────────────────
 let coordMode    = 'map';
 let pickerMap    = null;
@@ -683,7 +779,7 @@ function initPickerMap() {
     if (pickerMap) { pickerMap.invalidateSize(); return; }
 
     pickerMap = L.map('createPickerMap', { zoomControl: true, attributionControl: false });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(pickerMap);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(pickerMap);
     pickerMap.setView([3.1390, 101.6869], 11);
 
     pickerMap.on('click', function(e) {
@@ -693,7 +789,12 @@ function initPickerMap() {
 }
 
 function setMapPin(lat, lng) {
-    const pinIcon = L.divIcon({ html: '📍', className: '', iconSize: [24, 24], iconAnchor: [12, 24] });
+    const pinIcon = L.divIcon({
+        className: '',
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:#00e5ff;border:2px solid #00454f;box-shadow:0 0 8px #00e5ff88;"></div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+    });
     if (pickerMarker) pickerMap.removeLayer(pickerMarker);
     pickerMarker = L.marker([lat, lng], { icon: pinIcon }).addTo(pickerMap);
 
@@ -719,62 +820,126 @@ function syncManualToHidden() {
 function openCreateModal() {
     // Reset form
     coordMode = 'map';
+    useOriginManual = false;
     switchCoordTab('map');
-    document.getElementById('createModal').style.display = 'flex';
-    document.getElementById('createError').style.display = 'none';
-    document.getElementById('c_vehicle_id').value         = '';
-    document.getElementById('c_client_name').value        = '';
-    document.getElementById('c_client_email').value       = '';
-    document.getElementById('c_client_phone').value       = '';
-    document.getElementById('c_origin').value             = '';
-    document.getElementById('c_destination_address').value= '';
-    document.getElementById('c_expected_at').value        = '';
+    document.getElementById('createModal').style.display  = 'flex';
+    document.getElementById('createError').style.display  = 'none';
+    document.getElementById('c_vehicle_id').value          = '';
+    document.getElementById('c_client_name').value         = '';
+    document.getElementById('c_client_email').value        = '';
+    document.getElementById('c_client_phone').value        = '';
+    document.getElementById('c_origin').value              = '';
+    document.getElementById('c_origin_address').value      = '';
+    document.getElementById('c_origin_preset').value       = '';
+    document.getElementById('originPresetDetail').textContent = '';
+    document.getElementById('originPresetWrap').style.display = 'block';
+    document.getElementById('originManualWrap').style.display = 'none';
+    document.getElementById('originModeToggle').textContent   = 'Type manually instead';
+    document.getElementById('c_destination_address').value = '';
+    document.getElementById('c_expected_at').value         = '';
     clearMapPin();
+    loadOriginPresets();
     // Init map after modal is visible
     setTimeout(initPickerMap, 150);
 }
 function closeCreateModal() {
     document.getElementById('createModal').style.display = 'none';
+    clearMapPin();
 }
 
 async function submitShipment() {
-    const btn = document.getElementById('createBtn');
-    btn.textContent = 'Creating…';
-    btn.disabled = true;
+    const errDiv = document.getElementById('createError');
+    const btn    = document.getElementById('createBtn');
+    errDiv.style.display = 'none';
+
+    // ── Client-side validation ───────────────────────────────────────────
+    const lat    = document.getElementById('c_dest_lat').value;
+    const lng    = document.getElementById('c_dest_lng').value;
+    const origin = document.getElementById('c_origin_address').value
+                || document.getElementById('c_origin').value;
+    const rawDt  = document.getElementById('c_expected_at').value;
+
+    if (!document.getElementById('c_vehicle_id').value) {
+        return showErr(errDiv, 'Please select a vehicle.');
+    }
+    if (!document.getElementById('c_client_name').value.trim()) {
+        return showErr(errDiv, 'Client name is required.');
+    }
+    if (!document.getElementById('c_client_email').value.trim()) {
+        return showErr(errDiv, 'Client email is required.');
+    }
+    if (!origin.trim()) {
+        return showErr(errDiv, 'Please select or enter an origin address.');
+    }
+    if (!document.getElementById('c_destination_address').value.trim()) {
+        return showErr(errDiv, 'Destination address is required.');
+    }
+    if (!lat || !lng) {
+        return showErr(errDiv, coordMode === 'map'
+            ? 'Please click the map to pin a destination.'
+            : 'Please enter both Latitude and Longitude.');
+    }
+    if (!rawDt) {
+        return showErr(errDiv, 'Expected delivery date and time is required.');
+    }
+
+    // Fix datetime-local → Laravel format (2025-05-20T14:30 → 2025-05-20 14:30:00)
+    const expectedAt = rawDt.replace('T', ' ') + ':00';
 
     const body = {
         vehicle_id:           document.getElementById('c_vehicle_id').value,
-        client_name:          document.getElementById('c_client_name').value,
-        client_email:         document.getElementById('c_client_email').value,
-        client_phone:         document.getElementById('c_client_phone').value,
-        origin_address:       document.getElementById('c_origin').value,
-        destination_address:  document.getElementById('c_destination_address').value,
-        destination_lat:      document.getElementById('c_dest_lat').value,
-        destination_lng:      document.getElementById('c_dest_lng').value,
-        expected_delivery_at: document.getElementById('c_expected_at').value,
+        client_name:          document.getElementById('c_client_name').value.trim(),
+        client_email:         document.getElementById('c_client_email').value.trim(),
+        client_phone:         document.getElementById('c_client_phone').value.trim() || null,
+        origin_address:       origin.trim(),
+        destination_address:  document.getElementById('c_destination_address').value.trim(),
+        destination_lat:      parseFloat(lat),
+        destination_lng:      parseFloat(lng),
+        expected_delivery_at: expectedAt,
     };
 
-    const res  = await fetch('/fleet/api/shipments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF },
-        body: JSON.stringify(body),
-    });
-    const json = await res.json();
+    // ── Submit ───────────────────────────────────────────────────────────
+    btn.textContent = 'Creating...';
+    btn.disabled    = true;
 
-    btn.textContent = 'Create Shipment';
-    btn.disabled = false;
+    try {
+        const res  = await fetch('/fleet/api/shipments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': CSRF,
+                'Accept':       'application/json',
+            },
+            body: JSON.stringify(body),
+        });
 
-    if (!res.ok) {
-        const errDiv = document.getElementById('createError');
-        const msg = json.errors ? Object.values(json.errors).flat().join(' ') : (json.message || 'Error.');
-        errDiv.textContent = msg;
-        errDiv.style.display = 'block';
-        return;
+        let json = {};
+        try { json = await res.json(); } catch(e) {}
+
+        if (!res.ok) {
+            const msg = json.errors
+                ? Object.values(json.errors).flat().join(' ')
+                : (json.message || `Server error (${res.status}). Check all fields.`);
+            return showErr(errDiv, msg);
+        }
+
+        closeCreateModal();
+        showToast('Shipment ' + json.tracking_code + ' created!');
+        setTimeout(() => location.reload(), 1200);
+
+    } catch (networkErr) {
+        showErr(errDiv, 'Network error — could not reach server. Please try again.');
+        console.error('submitShipment error:', networkErr);
+    } finally {
+        btn.textContent = 'Create Shipment';
+        btn.disabled    = false;
     }
+}
 
-    closeCreateModal();
-    showToast(`Shipment ${json.tracking_code} created!`);
-    setTimeout(() => location.reload(), 1200);
+function showErr(div, msg) {
+    div.textContent     = msg;
+    div.style.display   = 'block';
+    div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────

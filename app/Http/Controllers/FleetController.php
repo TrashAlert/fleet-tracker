@@ -192,17 +192,24 @@ class FleetController extends Controller
      */
     public function storeShipment(Request $request): JsonResponse
     {
+        // Force JSON error responses so the JS fetch can always parse them
+        $request->headers->set('Accept', 'application/json');
+
         $data = $request->validate([
             'vehicle_id'           => 'required|exists:vehicles,id',
             'client_name'          => 'required|string|max:255',
-            'client_email'         => 'required|email',
+            'client_email'         => 'required|email|max:255',
             'client_phone'         => 'nullable|string|max:20',
-            'origin_address'       => 'required|string',
-            'destination_address'  => 'required|string',
+            'origin_address'       => 'required|string|max:500',
+            'destination_address'  => 'required|string|max:500',
             'destination_lat'      => 'required|numeric|between:-90,90',
             'destination_lng'      => 'required|numeric|between:-180,180',
-            'expected_delivery_at' => 'required|date|after:now',
+            'expected_delivery_at' => 'required|date',
         ]);
+
+        // Cast coords to float so MySQL doesn't reject string values
+        $data['destination_lat'] = (float) $data['destination_lat'];
+        $data['destination_lng'] = (float) $data['destination_lng'];
 
         $shipment = Shipment::create($data);
 
@@ -215,7 +222,7 @@ class FleetController extends Controller
 
         return response()->json([
             'tracking_code' => $shipment->tracking_code,
-            'shipment'      => $shipment,
+            'id'            => $shipment->id,
         ], 201);
     }
     /**

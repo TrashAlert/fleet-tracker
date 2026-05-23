@@ -4,6 +4,7 @@ use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\ClientTrackingController;
 use App\Http\Controllers\FleetController;
+use App\Http\Controllers\OriginLocationController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -74,6 +75,15 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
         Route::get('/activity-log',                 [ActivityLogController::class, 'index'])->name('activity-log');
         Route::get('/api/activity-log/latest',      [ActivityLogController::class, 'latest'])->name('api.activity-log.latest');
         Route::get('/api/activity-log/{type}/{id}', [ActivityLogController::class, 'forSubject'])->name('api.activity-log.subject');
+    });
+
+    // ── Origin Locations (admin + manager) ───────────────────────────────────
+    Route::middleware('role:admin,manager')->group(function () {
+        Route::get('/origins',              [OriginLocationController::class, 'index'])->name('origins');
+        Route::post('/origins',             [OriginLocationController::class, 'store'])->name('origins.store');
+        Route::put('/origins/{origin}',     [OriginLocationController::class, 'update'])->name('origins.update');
+        Route::delete('/origins/{origin}',  [OriginLocationController::class, 'destroy'])->name('origins.destroy');
+        Route::get('/api/origins',          [OriginLocationController::class, 'list'])->name('api.origins.list');
     });
 
     // ── User Management (admin only) ──────────────────────────────────────
