@@ -17,14 +17,25 @@ class FleetController extends Controller
      */
     public function dashboard()
     {
-        $vehicles = Vehicle::with(['latestPosition', 'activeShipment'])
-            ->where('is_active', true)
-            ->get();
+        $user  = auth()->user();
+        $query = Vehicle::with(['latestPosition', 'activeShipment'])
+            ->where('is_active', true);
 
-        $unreadAlerts = Alert::where('is_read', false)
-            ->latest('triggered_at')
-            ->take(20)
-            ->get();
+        // Drivers only see their own vehicle
+        if ($user->isDriver() && $user->vehicle_id) {
+            $query->where('id', $user->vehicle_id);
+        }
+
+        $vehicles = $query->get();
+
+        $alertQuery = Alert::where('is_read', false)->latest('triggered_at');
+
+        // Drivers only see alerts for their own vehicle
+        if ($user->isDriver() && $user->vehicle_id) {
+            $alertQuery->where('vehicle_id', $user->vehicle_id);
+        }
+
+        $unreadAlerts = $alertQuery->take(50)->get();
 
         return view('fleet.dashboard', compact('vehicles', 'unreadAlerts'));
     }
@@ -34,9 +45,14 @@ class FleetController extends Controller
      */
     public function livePositions(): JsonResponse
     {
-        $positions = Vehicle::with('latestPosition')
-            ->where('is_active', true)
-            ->get()
+        $user  = auth()->user();
+        $query = Vehicle::with('latestPosition')->where('is_active', true);
+
+        if ($user->isDriver() && $user->vehicle_id) {
+            $query->where('id', $user->vehicle_id);
+        }
+
+        $positions = $query->get()
             ->map(fn(Vehicle $v) => [
                 'id'           => $v->id,
                 'name'         => $v->name,

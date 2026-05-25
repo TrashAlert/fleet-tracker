@@ -229,8 +229,14 @@
     @if(! $code)
         {{-- Landing --}}
         <div class="not-found">
-            <div class="code">📦</div>
-            <p style="margin-top:16px; font-size:14px;">Enter your 10-character tracking code above to see your shipment status.</p>
+            <div style="margin-bottom:16px;">
+                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1.5" style="display:block;margin:0 auto;">
+                    <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                    <line x1="12" y1="22.08" x2="12" y2="12"/>
+                </svg>
+            </div>
+            <p style="font-size:14px; color:var(--subtle);">Enter your 10-character tracking code above to see your shipment status.</p>
         </div>
 
     @elseif(! $shipment)
@@ -256,6 +262,7 @@
                                 'in_transit' => 'status-transit',
                                 'delayed'    => 'status-delayed',
                                 'delivered'  => 'status-delivered',
+                                'cancelled'  => 'status-pending',
                                 default      => 'status-pending',
                             };
                         @endphp
@@ -334,14 +341,18 @@ const map = L.map('client-map').setView(
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-// Destination marker (flag)
+// Destination marker
 L.marker([DEST_LAT, DEST_LNG], {
     icon: L.divIcon({
         className: '',
-        html: `<div style="font-size:24px; transform:translate(-12px,-24px);">🏁</div>`,
-        iconSize: [24, 24],
+        html: `<div style="
+            width:14px; height:14px; border-radius:50%;
+            background:#dc2626; border:3px solid #fff;
+            box-shadow:0 2px 8px rgba(220,38,38,0.5);
+        "></div>`,
+        iconSize: [14, 14], iconAnchor: [7, 7],
     })
-}).addTo(map).bindPopup('<b>Destination</b>');
+}).addTo(map).bindPopup('<b>Destination</b><br>{{ $shipment->destination_address }}');
 
 // Vehicle marker
 const vehicleIcon = L.divIcon({
@@ -377,11 +388,11 @@ async function pollStatus() {
             document.getElementById('live-time').textContent  = timeAgo(data.vehicle.recorded_at);
         }
 
-        // Update status badge
-        const badge = document.getElementById('status-badge');
-        const classMap = { 'in_transit':'status-transit', 'delayed':'status-delayed', 'delivered':'status-delivered', 'pending':'status-pending' };
+        // Update status badge — use innerHTML to keep ::before dot
+        const badge    = document.getElementById('status-badge');
+        const classMap = { 'in_transit':'status-transit', 'delayed':'status-delayed', 'delivered':'status-delivered', 'pending':'status-pending', 'cancelled':'status-pending' };
         badge.className = 'status-badge ' + (classMap[data.status] ?? 'status-pending');
-        badge.textContent = data.status.replace('_', ' ');
+        badge.textContent = data.status.replace(/_/g, ' ');
 
     } catch(e) { console.error(e); }
 }
