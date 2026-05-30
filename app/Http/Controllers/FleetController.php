@@ -37,6 +37,11 @@ class FleetController extends Controller
 
         $unreadAlerts = $alertQuery->take(50)->get();
 
+        // Drivers get a dedicated scoped view
+        if ($user->isDriver()) {
+            return view('fleet.driver-dashboard', compact('vehicles', 'unreadAlerts'));
+        }
+
         return view('fleet.dashboard', compact('vehicles', 'unreadAlerts'));
     }
 
@@ -63,6 +68,8 @@ class FleetController extends Controller
                 'longitude'    => $v->latestPosition?->longitude,
                 'speed_kmh'    => $v->latestPosition?->speed_kmh,
                 'heading'      => $v->latestPosition?->heading,
+                'satellites'   => $v->latestPosition?->satellites,
+                'hdop'         => $v->latestPosition?->hdop,
                 'recorded_at'  => $v->latestPosition?->recorded_at?->toIso8601String(),
             ]);
 
@@ -74,9 +81,14 @@ class FleetController extends Controller
      */
     public function tripHistory(Request $request, Vehicle $vehicle): JsonResponse
     {
-        $request->validate([
-            'date' => 'required|date',
-        ]);
+        $request->validate(['date' => 'required|date']);
+
+        $user = auth()->user();
+
+        // Drivers can only view their own vehicle history
+        if ($user->isDriver() && $user->vehicle_id !== $vehicle->id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
 
         $points = GpsTelemetry::where('vehicle_id', $vehicle->id)
             ->whereDate('recorded_at', $request->date)
@@ -308,16 +320,19 @@ class FleetController extends Controller
      */
     public function unreadAlerts(): JsonResponse
     {
-        $alerts = Alert::where('is_read', false)
-            ->latest('triggered_at')
-            ->take(20)
-            ->get()
-            ->map(fn($a) => [
-                'id'           => $a->id,
-                'type'         => $a->type,
-                'message'      => $a->message,
-                'triggered_at' => $a->triggered_at->diffForHumans(),
-            ]);
+        $user  = auth()->user();
+        $query = Alert::where('is_read', false)->latest('triggered_at');
+
+        if ($user->isDriver() && $user->vehicle_id) {
+            $query->where('vehicle_id', $user->vehicle_id);
+        }
+
+        $alerts = $query->take(50)->get()->map(fn($a) => [
+            'id'           => $a->id,
+            'type'         => $a->type,
+            'message'      => $a->message,
+            'triggered_at' => $a->triggered_at->diffForHumans(),
+        ]);
 
         return response()->json($alerts);
     }
