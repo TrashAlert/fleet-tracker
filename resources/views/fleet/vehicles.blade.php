@@ -13,7 +13,7 @@
 
 @if(session('success'))
 <div style="background:#16301e; color:#22c55e; padding:12px 18px; border-radius:8px; font-size:12px; margin-bottom:16px; border:1px solid #1e4a2e;">
-    ✅ {{ session('success') }}
+    {{ session('success') }}
 </div>
 @endif
 
@@ -173,7 +173,7 @@
             <p style="font-size:13px; margin-bottom:6px;">Are you sure you want to delete:</p>
             <p id="delete-name" style="font-size:15px; font-weight:700; color:var(--danger); margin-bottom:16px;"></p>
             <p style="font-size:11px; color:var(--subtle); margin-bottom:20px;">
-                ⚠ This will permanently remove the vehicle and all its GPS telemetry history. This cannot be undone.
+                This will permanently remove the vehicle and all its GPS telemetry history. This cannot be undone.
             </p>
             <div style="display:flex; gap:10px;">
                 <button onclick="closeDelete()" class="btn btn-ghost" style="flex:1; justify-content:center;">Cancel</button>
@@ -274,7 +274,7 @@ async function submitEdit() {
             msg.style.display = 'block';
             msg.style.background = '#16301e';
             msg.style.color = '#22c55e';
-            msg.textContent = '✅ Vehicle updated successfully.';
+            msg.textContent = 'Vehicle updated successfully.';
             setTimeout(() => location.reload(), 1200);
         } else {
             msg.style.display = 'block';

@@ -256,6 +256,31 @@ class FleetController extends Controller
     /**
      * Update vehicle details.
      */
+    public function storeVehicle(Request $request)
+    {
+        $request->headers->set('Accept', 'application/json');
+
+        $data = $request->validate([
+            'name'           => 'required|string|max:100',
+            'plate_number'   => 'required|string|max:20|unique:vehicles,plate_number',
+            'mqtt_client_id' => 'required|string|max:100|unique:vehicles,mqtt_client_id',
+            'driver_name'    => 'nullable|string|max:100',
+            'driver_phone'   => 'nullable|string|max:20',
+        ]);
+
+        $vehicle = Vehicle::create(array_merge($data, ['is_active' => true]));
+
+        ActivityLogger::logEvent(
+            'vehicle_created',
+            "Vehicle [{$vehicle->name}] registered with plate {$vehicle->plate_number}",
+            'Vehicle', $vehicle->id, $vehicle->plate_number,
+            ['mqtt_client_id' => $vehicle->mqtt_client_id]
+        );
+
+        return redirect()->route('fleet.vehicles')
+            ->with('success', "Vehicle {$vehicle->name} registered successfully.");
+    }
+
     public function updateVehicle(Request $request, Vehicle $vehicle): JsonResponse
     {
         $data = $request->validate([
