@@ -70,6 +70,10 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
         ->middleware('role:admin,manager')
         ->name('api.shipment.status');
 
+    // Delivery confirmation — driver only
+    Route::get('/api/delivery-status',                        [FleetController::class, 'deliveryStatus'])->name('api.delivery.status');
+    Route::post('/api/shipments/{shipment}/confirm-delivery',  [FleetController::class, 'confirmDelivery'])->name('api.shipment.confirm');
+
     // ── Activity Log (admin + manager) ────────────────────────────────────
     Route::middleware('role:admin,manager')->group(function () {
         Route::get('/activity-log',                 [ActivityLogController::class, 'index'])->name('activity-log');

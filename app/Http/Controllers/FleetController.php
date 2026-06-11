@@ -194,6 +194,91 @@ class FleetController extends Controller
     }
 
     /**
+     * Driver confirms delivery — validates they are still within radius.
+     */
+    public function confirmDelivery(Request $request, Shipment $shipment): JsonResponse
+    {
+        $user = auth()->user();
+
+        // Only the driver of this vehicle can confirm
+        if ($user->isDriver() && $user->vehicle_id !== $shipment->vehicle_id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
+
+        // Shipment must be active
+        if (! in_array($shipment->status, ['pending', 'in_transit', 'delayed'])) {
+            return response()->json(['error' => 'Shipment is not in an active state.'], 422);
+        }
+
+        // Must have entered the radius first
+        if (! $shipment->near_destination_at) {
+            return response()->json(['error' => 'Vehicle has not reached the destination radius yet.'], 422);
+        }
+
+        // Validate driver is still within radius
+        $shipment->load('vehicle.latestPosition');
+        if (! $shipment->isCurrentlyNearDestination(200)) {
+            return response()->json([
+                'error' => 'You are no longer within the delivery zone. Move closer to the destination to confirm.',
+            ], 422);
+        }
+
+        $shipment->update([
+            'status'             => 'delivered',
+            'actual_delivery_at' => now(),
+            'left_radius_at'     => null,
+            'delivery_flag_sent' => false,
+        ]);
+
+        ActivityLogger::logEvent(
+            'shipment_delivered',
+            "Shipment {$shipment->tracking_code} confirmed as delivered by driver {$user->name}",
+            'Shipment', $shipment->id, $shipment->tracking_code,
+            ['confirmed_by' => $user->name, 'vehicle_id' => $shipment->vehicle_id],
+            ['causer_type' => 'web', 'causer_label' => $user->name]
+        );
+
+        return response()->json([
+            'ok'                 => true,
+            'tracking_code'      => $shipment->tracking_code,
+            'actual_delivery_at' => $shipment->actual_delivery_at->format('d M Y, H:i'),
+        ]);
+    }
+
+    /**
+     * Delivery status for driver dashboard polling — checks if near destination.
+     */
+    public function deliveryStatus(): JsonResponse
+    {
+        $user = auth()->user();
+
+        if (! $user->isDriver() || ! $user->vehicle_id) {
+            return response()->json(['near_destination' => false]);
+        }
+
+        $vehicle  = Vehicle::with(['latestPosition', 'activeShipment'])->find($user->vehicle_id);
+        $shipment = $vehicle?->activeShipment;
+
+        if (! $shipment || ! $vehicle?->latestPosition) {
+            return response()->json(['near_destination' => false]);
+        }
+
+        $pos      = $vehicle->latestPosition;
+        $distance = $pos->distanceTo($shipment->destination_lat, $shipment->destination_lng);
+
+        return response()->json([
+            'near_destination'    => $distance <= 200,
+            'distance_metres'     => round($distance),
+            'shipment_id'         => $shipment->id,
+            'tracking_code'       => $shipment->tracking_code,
+            'near_destination_at' => $shipment->near_destination_at?->toIso8601String(),
+            'left_radius_at'      => $shipment->left_radius_at?->toIso8601String(),
+            'delivery_flag_sent'  => $shipment->delivery_flag_sent,
+            'status'              => $shipment->status,
+        ]);
+    }
+
+    /**
      * Manual status override (admin/manager only).
      */
     public function updateShipmentStatus(Request $request, Shipment $shipment): JsonResponse

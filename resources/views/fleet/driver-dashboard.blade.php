@@ -57,6 +57,47 @@
     </div>
 </div>
 
+{{-- ── Delivery Confirmation Banner (injected by JS when near destination) ── --}}
+<div id="delivery-banner" style="display:none; margin-bottom:20px;">
+    <div style="
+        background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.35);
+        border-radius:10px; padding:18px 22px;
+        display:flex; align-items:center; justify-content:space-between; gap:16px;
+    ">
+        <div style="display:flex; align-items:center; gap:14px;">
+            <div style="
+                width:36px; height:36px; border-radius:8px;
+                background:rgba(34,197,94,0.15);
+                display:flex; align-items:center; justify-content:center; flex-shrink:0;
+            ">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+                </svg>
+            </div>
+            <div>
+                <div style="font-weight:700; font-size:13px; color:var(--success);">You are near the delivery destination</div>
+                <div style="font-size:11px; color:var(--subtle); margin-top:3px;" id="banner-distance">
+                    Within delivery zone — please confirm when goods are handed over.
+                </div>
+            </div>
+        </div>
+        <div style="display:flex; gap:10px; flex-shrink:0;">
+            <div id="banner-flag-warning" style="display:none; font-size:11px; color:var(--warning); align-self:center; text-align:right; max-width:180px;">
+                You have left the zone.<br>Confirm within 5 minutes or a flag will be raised.
+            </div>
+            <button id="confirm-delivery-btn" onclick="confirmDelivery()"
+                style="
+                    background:var(--success); color:#000; border:none; border-radius:7px;
+                    padding:10px 20px; font-family:var(--font-display); font-weight:700;
+                    font-size:13px; cursor:pointer; transition:opacity .15s; white-space:nowrap;
+                "
+                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                Confirm Delivery
+            </button>
+        </div>
+    </div>
+</div>
+
 {{-- ── Map + Active Shipment ────────────────────────────────────────────── --}}
 <div class="grid-3" style="margin-bottom:20px;">
 
@@ -336,11 +377,117 @@ async function fetchNewAlerts() {
     } catch(e) { console.error('Alert fetch error:', e); }
 }
 
+// ── Delivery status polling ───────────────────────────────────────────────
+let lastDeliveryState = null;
+
+async function fetchDeliveryStatus() {
+    try {
+        const res  = await fetch('{{ route("fleet.api.delivery.status") }}', {
+            headers: { 'Accept': 'application/json' }
+        });
+        const data = await res.json();
+
+        const banner      = document.getElementById('delivery-banner');
+        const distanceEl  = document.getElementById('banner-distance');
+        const flagWarning = document.getElementById('banner-flag-warning');
+        const confirmBtn  = document.getElementById('confirm-delivery-btn');
+
+        // No active shipment or not near — hide banner
+        if (!data.near_destination && !data.left_radius_at) {
+            banner.style.display = 'none';
+            lastDeliveryState    = null;
+            return;
+        }
+
+        // Store shipment id for confirm call
+        banner.dataset.shipmentId = data.shipment_id;
+
+        // Show banner
+        banner.style.display = 'block';
+
+        if (data.near_destination) {
+            // Inside the zone
+            distanceEl.textContent  = `${data.distance_metres}m from destination — please confirm when goods are handed over.`;
+            flagWarning.style.display = 'none';
+            confirmBtn.disabled       = false;
+            confirmBtn.style.opacity  = '1';
+        } else if (data.left_radius_at) {
+            // Left the zone — show warning + countdown
+            const leftAt      = new Date(data.left_radius_at);
+            const minsOutside = Math.floor((Date.now() - leftAt) / 60000);
+            const minsLeft    = Math.max(0, 5 - minsOutside);
+
+            distanceEl.textContent    = `${data.distance_metres}m from destination — you have left the delivery zone.`;
+            flagWarning.style.display = 'block';
+            flagWarning.innerHTML     = minsLeft > 0
+                ? `You have left the zone.<br><span style="color:var(--danger);">${minsLeft} minute${minsLeft !== 1 ? 's' : ''} left</span> before a flag is raised.`
+                : `<span style="color:var(--danger);">Flag has been raised</span> — contact your manager.`;
+
+            // Disable confirm button if outside radius
+            confirmBtn.disabled      = true;
+            confirmBtn.style.opacity = '.4';
+        }
+
+        lastDeliveryState = data;
+
+    } catch(e) { console.error('Delivery status error:', e); }
+}
+
+// ── Confirm delivery ──────────────────────────────────────────────────────
+async function confirmDelivery() {
+    const shipmentId = document.getElementById('delivery-banner').dataset.shipmentId;
+    if (!shipmentId) return;
+
+    const btn = document.getElementById('confirm-delivery-btn');
+    btn.textContent  = 'Confirming...';
+    btn.disabled     = true;
+
+    try {
+        const res  = await fetch(`/fleet/api/shipments/${shipmentId}/confirm-delivery`, {
+            method:  'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'Accept':        'application/json',
+                'X-CSRF-TOKEN':  CSRF,
+            },
+        });
+        const json = await res.json();
+
+        if (!res.ok) {
+            alert(json.error || 'Confirmation failed. Please try again.');
+            btn.textContent = 'Confirm Delivery';
+            btn.disabled    = false;
+            return;
+        }
+
+        // Success — update the banner
+        const banner = document.getElementById('delivery-banner');
+        banner.style.background    = 'rgba(0,229,255,0.06)';
+        banner.style.borderColor   = 'rgba(0,229,255,0.3)';
+        banner.querySelector('svg').setAttribute('stroke', 'var(--accent)');
+        banner.querySelector('div[style*="font-weight:700"]').style.color = 'var(--accent)';
+        banner.querySelector('div[style*="font-weight:700"]').textContent = 'Delivery confirmed!';
+        document.getElementById('banner-distance').textContent = `Shipment ${json.tracking_code} marked as delivered at ${json.actual_delivery_at}.`;
+        document.getElementById('banner-flag-warning').style.display = 'none';
+        btn.style.display = 'none';
+
+        // Refresh page after 3 seconds
+        setTimeout(() => location.reload(), 3000);
+
+    } catch(e) {
+        alert('Network error — please try again.');
+        btn.textContent = 'Confirm Delivery';
+        btn.disabled    = false;
+    }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
 fetchLivePosition();
 fetchNewAlerts();
-setInterval(fetchLivePosition, 5000);
-setInterval(fetchNewAlerts,    10000);
+fetchDeliveryStatus();
+setInterval(fetchLivePosition,    5000);
+setInterval(fetchNewAlerts,       10000);
+setInterval(fetchDeliveryStatus,  10000);
 </script>
 @endif
 @endpush

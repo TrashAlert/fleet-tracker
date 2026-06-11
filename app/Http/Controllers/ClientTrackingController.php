@@ -39,10 +39,12 @@ class ClientTrackingController extends Controller
         return response()->json([
             'status'   => $shipment->status,
             'vehicle'  => $pos ? [
-                'latitude'    => $pos->latitude,
-                'longitude'   => $pos->longitude,
-                'speed_kmh'   => $pos->speed_kmh,
-                'recorded_at' => $pos->recorded_at?->toIso8601String(),
+                'latitude'     => $pos->latitude,
+                'longitude'    => $pos->longitude,
+                'speed_kmh'    => $pos->speed_kmh,
+                'recorded_at'  => $pos->recorded_at?->toIso8601String(),
+                'driver_name'  => $shipment->vehicle?->driver_name,
+                'driver_phone' => $shipment->vehicle?->driver_phone,
             ] : null,
         ]);
     }

@@ -6,11 +6,21 @@ use App\Traits\Loggable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 
 class Shipment extends Model
 {
-    use Loggable;
+    use Loggable, Notifiable;
+
+    /**
+     * Route notifications to the client's email address.
+     * Required by the Notifiable trait when the model is not a User.
+     */
+    public function routeNotificationForMail(): string
+    {
+        return $this->client_email;
+    }
     protected $fillable = [
         'vehicle_id',
         'tracking_code',
@@ -25,6 +35,9 @@ class Shipment extends Model
         'actual_delivery_at',
         'status',
         'delay_notified',
+        'near_destination_at',
+        'left_radius_at',
+        'delivery_flag_sent',
     ];
 
     protected $casts = [
@@ -60,6 +73,17 @@ class Shipment extends Model
         if (in_array($this->status, ['delivered', 'cancelled'])) return false;
         $threshold = config('fleet.delay_threshold_minutes', 15);
         return now()->diffInMinutes($this->expected_delivery_at, false) < -$threshold;
+    }
+
+    /**
+     * Check if the vehicle is currently inside the destination radius
+     * using the latest stored GPS position.
+     */
+    public function isCurrentlyNearDestination(int $radiusMetres = 200): bool
+    {
+        $pos = $this->vehicle?->latestPosition;
+        if (! $pos) return false;
+        return $pos->distanceTo($this->destination_lat, $this->destination_lng) <= $radiusMetres;
     }
 
     public function isNearDestination(float $radiusMetres = 200): bool

@@ -308,6 +308,26 @@
                             {{ $shipment->vehicle->latestPosition?->recorded_at?->diffForHumans() ?? 'No data' }}
                         </span>
                     </div>
+                    @if($shipment->vehicle->driver_name || $shipment->vehicle->driver_phone)
+                    <div class="info-row">
+                        <span class="info-row-label">Driver</span>
+                        <span class="info-row-value" id="driver-name">
+                            {{ $shipment->vehicle->driver_name ?? '—' }}
+                        </span>
+                    </div>
+                    @endif
+                    @if($shipment->vehicle->driver_phone)
+                    <div class="info-row">
+                        <span class="info-row-label">Driver Contact</span>
+                        <span class="info-row-value">
+                            <a href="tel:{{ $shipment->vehicle->driver_phone }}"
+                                id="driver-phone"
+                                style="color:var(--accent); text-decoration:none; font-weight:600;">
+                                {{ $shipment->vehicle->driver_phone }}
+                            </a>
+                        </span>
+                    </div>
+                    @endif
                 </div>
             </div>
 
@@ -386,6 +406,15 @@ async function pollStatus() {
 
             document.getElementById('live-speed').textContent = (data.vehicle.speed_kmh?.toFixed(1) ?? 0) + ' km/h';
             document.getElementById('live-time').textContent  = timeAgo(data.vehicle.recorded_at);
+
+            // Update driver info if elements exist
+            const driverName  = document.getElementById('driver-name');
+            const driverPhone = document.getElementById('driver-phone');
+            if (driverName  && data.vehicle.driver_name)  driverName.textContent  = data.vehicle.driver_name;
+            if (driverPhone && data.vehicle.driver_phone) {
+                driverPhone.textContent = data.vehicle.driver_phone;
+                driverPhone.href        = 'tel:' + data.vehicle.driver_phone;
+            }
         }
 
         // Update status badge — use innerHTML to keep ::before dot

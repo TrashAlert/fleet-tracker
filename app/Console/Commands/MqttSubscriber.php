@@ -158,27 +158,80 @@ class MqttSubscriber extends Command
 
     private function checkDeliveryStatus(Vehicle $vehicle, GpsTelemetry $telemetry): void
     {
-        $shipment = $vehicle->activeShipment;
+        $shipment     = $vehicle->activeShipment;
         if (! $shipment) return;
 
-        // Mark delivered if within 200m of destination
-        if ($shipment->isNearDestination(200)) {
-            $shipment->update([
-                'status'             => 'delivered',
-                'actual_delivery_at' => now(),
-            ]);
-            Log::info("Shipment {$shipment->tracking_code} marked as delivered.");
-            ActivityLogger::logEvent(
-                'shipment_delivered',
-                "Shipment {$shipment->tracking_code} auto-marked as delivered — vehicle within 200m of destination",
-                'Shipment', $shipment->id, $shipment->tracking_code,
-                ['lat' => $shipment->destination_lat, 'lng' => $shipment->destination_lng],
-                ['causer_type' => 'system']
-            );
+        $distance     = $telemetry->distanceTo($shipment->destination_lat, $shipment->destination_lng);
+        $withinRadius = $distance <= 200;
+
+        // ── Vehicle is within destination radius ───────────────────────────
+        if ($withinRadius) {
+            // First time entering — record arrival time and notify driver
+            if (! $shipment->near_destination_at) {
+                $shipment->update([
+                    'near_destination_at' => now(),
+                    'left_radius_at'      => null,
+                ]);
+                Log::info("Shipment {$shipment->tracking_code}: vehicle entered destination radius.");
+                ActivityLogger::logEvent(
+                    'shipment_near_destination',
+                    "Vehicle {$vehicle->plate_number} entered destination radius for shipment {$shipment->tracking_code} — awaiting driver confirmation",
+                    'Shipment', $shipment->id, $shipment->tracking_code,
+                    ['distance_metres' => round($distance)],
+                    ['causer_type' => 'system']
+                );
+            }
+
+            // Re-entered radius after leaving — clear the left timer
+            if ($shipment->left_radius_at) {
+                $shipment->update(['left_radius_at' => null]);
+                Log::info("Shipment {$shipment->tracking_code}: vehicle re-entered radius.");
+            }
+
             return;
         }
 
-        // Notify client once when delay detected
+        // ── Vehicle is outside the radius ──────────────────────────────────
+        if ($shipment->near_destination_at) {
+            // Just left — record departure time
+            if (! $shipment->left_radius_at) {
+                $shipment->update(['left_radius_at' => now()]);
+                Log::info("Shipment {$shipment->tracking_code}: vehicle left destination radius.");
+                ActivityLogger::logEvent(
+                    'shipment_left_radius',
+                    "Vehicle {$vehicle->plate_number} left destination radius for shipment {$shipment->tracking_code} without confirming delivery",
+                    'Shipment', $shipment->id, $shipment->tracking_code,
+                    ['distance_metres' => round($distance)],
+                    ['causer_type' => 'system']
+                );
+            }
+
+            // Outside for more than 5 minutes — raise a flag
+            $minutesOutside = $shipment->left_radius_at->diffInMinutes(now());
+            if ($minutesOutside >= 5 && ! $shipment->delivery_flag_sent) {
+                $shipment->update(['delivery_flag_sent' => true]);
+
+                Alert::create([
+                    'vehicle_id'   => $vehicle->id,
+                    'shipment_id'  => $shipment->id,
+                    'type'         => 'geofence',
+                    'message'      => "Driver of {$vehicle->name} ({$vehicle->plate_number}) left the delivery zone for shipment {$shipment->tracking_code} without confirming delivery.",
+                    'meta'         => ['minutes_outside' => $minutesOutside, 'tracking_code' => $shipment->tracking_code],
+                    'triggered_at' => now(),
+                ]);
+
+                Log::warning("Shipment {$shipment->tracking_code}: delivery flag raised — driver left radius {$minutesOutside} min.");
+                ActivityLogger::logEvent(
+                    'delivery_flag_raised',
+                    "FLAGGED: Driver of {$vehicle->plate_number} left delivery zone for {$minutesOutside} min without confirming shipment {$shipment->tracking_code}",
+                    'Shipment', $shipment->id, $shipment->tracking_code,
+                    ['minutes_outside' => $minutesOutside],
+                    ['causer_type' => 'system']
+                );
+            }
+        }
+
+        // ── Delay check (independent of radius logic) ─────────────────────
         if ($shipment->isDelayed() && ! $shipment->delay_notified) {
             $shipment->update(['status' => 'delayed', 'delay_notified' => true]);
 
