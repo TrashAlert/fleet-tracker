@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Alert;
 use App\Models\GpsTelemetry;
+use App\Models\Shipment;
 use App\Models\Vehicle;
 use App\Notifications\DeliveryDelayedNotification;
 use App\Services\ActivityLogger;
@@ -158,9 +159,17 @@ class MqttSubscriber extends Command
 
     private function checkDeliveryStatus(Vehicle $vehicle, GpsTelemetry $telemetry): void
     {
-        $shipment     = $vehicle->activeShipment;
-        if (! $shipment) return;
+        // Check every active shipment — a vehicle may carry multiple deliveries
+        $shipments = $vehicle->activeShipments;
+        if ($shipments->isEmpty()) return;
 
+        foreach ($shipments as $shipment) {
+            $this->checkShipmentRadius($vehicle, $telemetry, $shipment);
+        }
+    }
+
+    private function checkShipmentRadius(Vehicle $vehicle, GpsTelemetry $telemetry, Shipment $shipment): void
+    {
         $distance     = $telemetry->distanceTo($shipment->destination_lat, $shipment->destination_lng);
         $withinRadius = $distance <= 200;
 

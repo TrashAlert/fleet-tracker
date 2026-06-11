@@ -57,46 +57,8 @@
     </div>
 </div>
 
-{{-- ── Delivery Confirmation Banner (injected by JS when near destination) ── --}}
-<div id="delivery-banner" style="display:none; margin-bottom:20px;">
-    <div style="
-        background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.35);
-        border-radius:10px; padding:18px 22px;
-        display:flex; align-items:center; justify-content:space-between; gap:16px;
-    ">
-        <div style="display:flex; align-items:center; gap:14px;">
-            <div style="
-                width:36px; height:36px; border-radius:8px;
-                background:rgba(34,197,94,0.15);
-                display:flex; align-items:center; justify-content:center; flex-shrink:0;
-            ">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5">
-                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
-                </svg>
-            </div>
-            <div>
-                <div style="font-weight:700; font-size:13px; color:var(--success);">You are near the delivery destination</div>
-                <div style="font-size:11px; color:var(--subtle); margin-top:3px;" id="banner-distance">
-                    Within delivery zone — please confirm when goods are handed over.
-                </div>
-            </div>
-        </div>
-        <div style="display:flex; gap:10px; flex-shrink:0;">
-            <div id="banner-flag-warning" style="display:none; font-size:11px; color:var(--warning); align-self:center; text-align:right; max-width:180px;">
-                You have left the zone.<br>Confirm within 5 minutes or a flag will be raised.
-            </div>
-            <button id="confirm-delivery-btn" onclick="confirmDelivery()"
-                style="
-                    background:var(--success); color:#000; border:none; border-radius:7px;
-                    padding:10px 20px; font-family:var(--font-display); font-weight:700;
-                    font-size:13px; cursor:pointer; transition:opacity .15s; white-space:nowrap;
-                "
-                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-                Confirm Delivery
-            </button>
-        </div>
-    </div>
-</div>
+{{-- ── Delivery Confirmation Banners (one per nearby shipment, injected by JS) ── --}}
+<div id="delivery-banners" style="margin-bottom:0;"></div>
 
 {{-- ── Map + Active Shipment ────────────────────────────────────────────── --}}
 <div class="grid-3" style="margin-bottom:20px;">
@@ -115,44 +77,50 @@
     {{-- Right column: Active shipment + alerts --}}
     <div style="display:flex; flex-direction:column; gap:14px;">
 
-        {{-- Active Shipment --}}
+        {{-- My Deliveries (sorted nearest first by JS) --}}
         <div class="card">
             <div class="card-header">
-                <span class="card-title">Active Shipment</span>
-                @if($vehicle->activeShipment)
-                    <span class="pill pill-transit">{{ $vehicle->activeShipment->status }}</span>
-                @endif
+                <span class="card-title">My Deliveries</span>
+                <span style="font-size:10px; color:var(--subtle);" id="deliveries-count">
+                    {{ $vehicle->activeShipments->count() }} active
+                </span>
             </div>
-            <div style="padding:16px 18px;">
-                @if($vehicle->activeShipment)
-                @php $s = $vehicle->activeShipment; @endphp
-                <div style="margin-bottom:14px;">
-                    <div style="font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--subtle); margin-bottom:4px;">Tracking Code</div>
-                    <div style="font-family:var(--font-display); font-size:16px; font-weight:700; color:var(--accent);">{{ $s->tracking_code }}</div>
-                </div>
-                <div style="display:flex; flex-direction:column; gap:10px;">
-                    <div>
-                        <div style="font-size:10px; color:var(--subtle); text-transform:uppercase; letter-spacing:.08em; margin-bottom:3px;">Client</div>
-                        <div style="font-size:12px;">{{ $s->client_name }}</div>
-                    </div>
-                    <div>
-                        <div style="font-size:10px; color:var(--subtle); text-transform:uppercase; letter-spacing:.08em; margin-bottom:3px;">Destination</div>
-                        <div style="font-size:12px; color:var(--subtle);">{{ $s->destination_address }}</div>
-                    </div>
-                    <div>
-                        <div style="font-size:10px; color:var(--subtle); text-transform:uppercase; letter-spacing:.08em; margin-bottom:3px;">Expected By</div>
-                        @php $overdue = $s->expected_delivery_at && $s->expected_delivery_at->isPast() && $s->status !== 'delivered'; @endphp
-                        <div style="font-size:12px; {{ $overdue ? 'color:var(--danger);' : '' }}">
-                            {{ $s->expected_delivery_at?->format('d M Y, H:i') ?? '—' }}
-                            @if($overdue) <span style="font-size:10px;">(overdue)</span> @endif
+            <div id="deliveries-list" style="padding:0 18px; max-height:300px; overflow-y:auto;">
+                @forelse($vehicle->activeShipments as $s)
+                @php
+                    $pos      = $vehicle->latestPosition;
+                    $distance = $pos ? round($pos->distanceTo($s->destination_lat, $s->destination_lng)) : null;
+                    $overdue  = $s->expected_delivery_at && $s->expected_delivery_at->isPast();
+                @endphp
+                <div class="delivery-item" id="delivery-{{ $s->id }}" data-distance="{{ $distance ?? 999999 }}"
+                    style="padding:13px 0; border-bottom:1px solid var(--border);">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+                        <div style="min-width:0;">
+                            <div style="font-family:var(--font-display); font-size:13px; font-weight:700; color:var(--accent);">
+                                {{ $s->tracking_code }}
+                            </div>
+                            <div style="font-size:11px; margin-top:3px;">{{ $s->client_name }}</div>
+                            <div style="font-size:10px; color:var(--subtle); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                {{ $s->destination_address }}
+                            </div>
+                            <div style="font-size:10px; margin-top:4px; {{ $overdue ? 'color:var(--danger);' : 'color:var(--subtle);' }}">
+                                Due: {{ $s->expected_delivery_at?->format('d M, H:i') ?? '—' }}
+                                @if($overdue) (overdue) @endif
+                            </div>
+                        </div>
+                        <div style="text-align:right; flex-shrink:0;">
+                            <div class="delivery-distance mono" style="font-size:12px; font-weight:600;">
+                                {{ $distance !== null ? ($distance >= 1000 ? number_format($distance/1000, 1).' km' : $distance.' m') : '—' }}
+                            </div>
+                            <div style="font-size:9px; color:var(--subtle); margin-top:2px;">away</div>
                         </div>
                     </div>
                 </div>
-                @else
+                @empty
                 <div style="text-align:center; padding:24px 0; color:var(--subtle); font-size:12px;">
-                    No active shipment assigned
+                    No active deliveries assigned
                 </div>
-                @endif
+                @endforelse
             </div>
         </div>
 
@@ -264,16 +232,17 @@ let vehicleMarker = L.marker(
     { icon: makeIcon({{ $vehicle->isOffline() ? 'true' : 'false' }}) }
 ).addTo(map).bindPopup('');
 
-@if($vehicle->activeShipment)
-// Destination marker
-L.marker([{{ $vehicle->activeShipment->destination_lat }}, {{ $vehicle->activeShipment->destination_lng }}], {
-    icon: L.divIcon({
-        className: '',
-        html: `<div style="width:12px;height:12px;border-radius:50%;background:#ef4444;border:2px solid #7f1d1d;box-shadow:0 0 6px #ef444488;"></div>`,
-        iconSize: [12, 12], iconAnchor: [6, 6],
-    })
-}).addTo(map).bindPopup('Destination: {{ $vehicle->activeShipment->destination_address }}');
-@endif
+// Destination markers — one per active delivery
+const destIcon = L.divIcon({
+    className: '',
+    html: `<div style="width:12px;height:12px;border-radius:50%;background:#ef4444;border:2px solid #7f1d1d;box-shadow:0 0 6px #ef444488;"></div>`,
+    iconSize: [12, 12], iconAnchor: [6, 6],
+});
+@foreach($vehicle->activeShipments as $s)
+L.marker([{{ $s->destination_lat }}, {{ $s->destination_lng }}], { icon: destIcon })
+    .addTo(map)
+    .bindPopup('<b>{{ $s->tracking_code }}</b><br>{{ $s->client_name }}<br>{{ $s->destination_address }}');
+@endforeach
 
 // ── Live polling ──────────────────────────────────────────────────────────
 async function fetchLivePosition() {
@@ -377,78 +346,151 @@ async function fetchNewAlerts() {
     } catch(e) { console.error('Alert fetch error:', e); }
 }
 
-// ── Delivery status polling ───────────────────────────────────────────────
-let lastDeliveryState = null;
-
+// ── Delivery status polling (multi-shipment) ─────────────────────────────
 async function fetchDeliveryStatus() {
     try {
         const res  = await fetch('{{ route("fleet.api.delivery.status") }}', {
             headers: { 'Accept': 'application/json' }
         });
-        const data = await res.json();
+        const data      = await res.json();
+        const shipments = data.shipments || [];
+        const container = document.getElementById('delivery-banners');
 
-        const banner      = document.getElementById('delivery-banner');
-        const distanceEl  = document.getElementById('banner-distance');
-        const flagWarning = document.getElementById('banner-flag-warning');
-        const confirmBtn  = document.getElementById('confirm-delivery-btn');
+        // ── Update banners — one per shipment that is near OR recently left ──
+        const bannersNeeded = shipments.filter(s => s.near_destination || s.left_radius_at);
+        const neededIds     = bannersNeeded.map(s => 'banner-' + s.shipment_id);
 
-        // No active shipment or not near — hide banner
-        if (!data.near_destination && !data.left_radius_at) {
-            banner.style.display = 'none';
-            lastDeliveryState    = null;
-            return;
+        // Remove banners for shipments no longer relevant
+        [...container.children].forEach(el => {
+            if (!neededIds.includes(el.id)) el.remove();
+        });
+
+        bannersNeeded.forEach(s => {
+            let banner = document.getElementById('banner-' + s.shipment_id);
+
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'banner-' + s.shipment_id;
+                banner.style.marginBottom = '14px';
+                container.appendChild(banner);
+            }
+
+            // Skip re-render if this banner is mid-confirmation
+            if (banner.dataset.confirming === '1') return;
+
+            if (s.near_destination) {
+                // ── Inside the zone — green confirm banner ──
+                banner.innerHTML = `
+                    <div style="background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.35);
+                        border-radius:10px; padding:16px 20px;
+                        display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+                        <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+                            <div style="width:34px; height:34px; border-radius:8px; background:rgba(34,197,94,0.15);
+                                display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2.5">
+                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+                                </svg>
+                            </div>
+                            <div style="min-width:0;">
+                                <div style="font-weight:700; font-size:13px; color:var(--success);">
+                                    Near destination — ${s.tracking_code}
+                                </div>
+                                <div style="font-size:11px; color:var(--subtle); margin-top:2px;">
+                                    ${s.client_name} · ${s.distance_metres}m away · confirm when goods are handed over
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="confirmDelivery(${s.shipment_id})"
+                            id="confirm-btn-${s.shipment_id}"
+                            style="background:var(--success); color:#000; border:none; border-radius:7px;
+                                padding:9px 18px; font-family:var(--font-display); font-weight:700;
+                                font-size:12px; cursor:pointer; white-space:nowrap; flex-shrink:0;">
+                            Confirm Delivery
+                        </button>
+                    </div>`;
+            } else if (s.left_radius_at) {
+                // ── Left the zone — amber warning with countdown ──
+                const leftAt      = new Date(s.left_radius_at);
+                const minsOutside = Math.floor((Date.now() - leftAt) / 60000);
+                const minsLeft    = Math.max(0, 5 - minsOutside);
+
+                const warningText = s.delivery_flag_sent || minsLeft === 0
+                    ? '<span style="color:var(--danger);">Flag raised</span> — contact your manager'
+                    : `<span style="color:var(--danger);">${minsLeft} min</span> left before a flag is raised`;
+
+                banner.innerHTML = `
+                    <div style="background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.3);
+                        border-radius:10px; padding:16px 20px;
+                        display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+                        <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+                            <div style="width:34px; height:34px; border-radius:8px; background:rgba(245,158,11,0.13);
+                                display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2.5">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                </svg>
+                            </div>
+                            <div style="min-width:0;">
+                                <div style="font-weight:700; font-size:13px; color:var(--warning);">
+                                    Left delivery zone — ${s.tracking_code}
+                                </div>
+                                <div style="font-size:11px; color:var(--subtle); margin-top:2px;">
+                                    ${s.distance_metres}m from destination · ${warningText}
+                                </div>
+                            </div>
+                        </div>
+                        <button disabled
+                            style="background:var(--muted); color:var(--subtle); border:none; border-radius:7px;
+                                padding:9px 18px; font-family:var(--font-display); font-weight:700;
+                                font-size:12px; cursor:not-allowed; white-space:nowrap; flex-shrink:0; opacity:.5;">
+                            Return to zone to confirm
+                        </button>
+                    </div>`;
+            }
+        });
+
+        // ── Update deliveries list distances + sort nearest-first ──
+        shipments.forEach(s => {
+            const item = document.getElementById('delivery-' + s.shipment_id);
+            if (!item) return;
+            item.dataset.distance = s.distance_metres;
+            const distEl = item.querySelector('.delivery-distance');
+            if (distEl) {
+                distEl.textContent = s.distance_metres >= 1000
+                    ? (s.distance_metres / 1000).toFixed(1) + ' km'
+                    : s.distance_metres + ' m';
+            }
+        });
+
+        const list = document.getElementById('deliveries-list');
+        if (list) {
+            const items = [...list.querySelectorAll('.delivery-item')];
+            items.sort((a, b) => Number(a.dataset.distance) - Number(b.dataset.distance));
+            items.forEach(i => list.appendChild(i));
         }
 
-        // Store shipment id for confirm call
-        banner.dataset.shipmentId = data.shipment_id;
-
-        // Show banner
-        banner.style.display = 'block';
-
-        if (data.near_destination) {
-            // Inside the zone
-            distanceEl.textContent  = `${data.distance_metres}m from destination — please confirm when goods are handed over.`;
-            flagWarning.style.display = 'none';
-            confirmBtn.disabled       = false;
-            confirmBtn.style.opacity  = '1';
-        } else if (data.left_radius_at) {
-            // Left the zone — show warning + countdown
-            const leftAt      = new Date(data.left_radius_at);
-            const minsOutside = Math.floor((Date.now() - leftAt) / 60000);
-            const minsLeft    = Math.max(0, 5 - minsOutside);
-
-            distanceEl.textContent    = `${data.distance_metres}m from destination — you have left the delivery zone.`;
-            flagWarning.style.display = 'block';
-            flagWarning.innerHTML     = minsLeft > 0
-                ? `You have left the zone.<br><span style="color:var(--danger);">${minsLeft} minute${minsLeft !== 1 ? 's' : ''} left</span> before a flag is raised.`
-                : `<span style="color:var(--danger);">Flag has been raised</span> — contact your manager.`;
-
-            // Disable confirm button if outside radius
-            confirmBtn.disabled      = true;
-            confirmBtn.style.opacity = '.4';
-        }
-
-        lastDeliveryState = data;
+        document.getElementById('deliveries-count').textContent = shipments.length + ' active';
 
     } catch(e) { console.error('Delivery status error:', e); }
 }
 
-// ── Confirm delivery ──────────────────────────────────────────────────────
-async function confirmDelivery() {
-    const shipmentId = document.getElementById('delivery-banner').dataset.shipmentId;
-    if (!shipmentId) return;
+// ── Confirm delivery (per shipment) ───────────────────────────────────────
+async function confirmDelivery(shipmentId) {
+    const banner = document.getElementById('banner-' + shipmentId);
+    const btn    = document.getElementById('confirm-btn-' + shipmentId);
+    if (!btn) return;
 
-    const btn = document.getElementById('confirm-delivery-btn');
-    btn.textContent  = 'Confirming...';
-    btn.disabled     = true;
+    btn.textContent = 'Confirming...';
+    btn.disabled    = true;
+    if (banner) banner.dataset.confirming = '1';
 
     try {
         const res  = await fetch(`/fleet/api/shipments/${shipmentId}/confirm-delivery`, {
             method:  'POST',
             headers: {
-                'Content-Type':  'application/json',
-                'Accept':        'application/json',
-                'X-CSRF-TOKEN':  CSRF,
+                'Content-Type': 'application/json',
+                'Accept':       'application/json',
+                'X-CSRF-TOKEN': CSRF,
             },
         });
         const json = await res.json();
@@ -457,27 +499,39 @@ async function confirmDelivery() {
             alert(json.error || 'Confirmation failed. Please try again.');
             btn.textContent = 'Confirm Delivery';
             btn.disabled    = false;
+            if (banner) banner.dataset.confirming = '0';
             return;
         }
 
-        // Success — update the banner
-        const banner = document.getElementById('delivery-banner');
-        banner.style.background    = 'rgba(0,229,255,0.06)';
-        banner.style.borderColor   = 'rgba(0,229,255,0.3)';
-        banner.querySelector('svg').setAttribute('stroke', 'var(--accent)');
-        banner.querySelector('div[style*="font-weight:700"]').style.color = 'var(--accent)';
-        banner.querySelector('div[style*="font-weight:700"]').textContent = 'Delivery confirmed!';
-        document.getElementById('banner-distance').textContent = `Shipment ${json.tracking_code} marked as delivered at ${json.actual_delivery_at}.`;
-        document.getElementById('banner-flag-warning').style.display = 'none';
-        btn.style.display = 'none';
-
-        // Refresh page after 3 seconds
-        setTimeout(() => location.reload(), 3000);
+        // Success — show confirmation state on this banner
+        if (banner) {
+            banner.innerHTML = `
+                <div style="background:rgba(0,229,255,0.06); border:1px solid rgba(0,229,255,0.3);
+                    border-radius:10px; padding:16px 20px; display:flex; align-items:center; gap:12px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    <div>
+                        <div style="font-weight:700; font-size:13px; color:var(--accent);">Delivery confirmed</div>
+                        <div style="font-size:11px; color:var(--subtle); margin-top:2px;">
+                            ${json.tracking_code} delivered at ${json.actual_delivery_at}
+                        </div>
+                    </div>
+                </div>`;
+            // Remove banner + list item after 4 seconds
+            setTimeout(() => {
+                banner.remove();
+                document.getElementById('delivery-' + shipmentId)?.remove();
+                const remaining = document.querySelectorAll('.delivery-item').length;
+                document.getElementById('deliveries-count').textContent = remaining + ' active';
+            }, 4000);
+        }
 
     } catch(e) {
         alert('Network error — please try again.');
         btn.textContent = 'Confirm Delivery';
         btn.disabled    = false;
+        if (banner) banner.dataset.confirming = '0';
     }
 }
 

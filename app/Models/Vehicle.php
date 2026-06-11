@@ -41,11 +41,25 @@ class Vehicle extends Model
         return $this->hasMany(Shipment::class);
     }
 
+    /**
+     * Single most-recent active shipment — kept for backwards compatibility
+     * (used by admin dashboard table).
+     */
     public function activeShipment(): HasOne
     {
         return $this->hasOne(Shipment::class)
             ->whereIn('status', ['pending', 'in_transit', 'delayed'])
             ->latestOfMany();
+    }
+
+    /**
+     * All active shipments for this vehicle — used for multi-delivery
+     * radius monitoring and the driver dashboard.
+     */
+    public function activeShipments(): HasMany
+    {
+        return $this->hasMany(Shipment::class)
+            ->whereIn('status', ['pending', 'in_transit', 'delayed']);
     }
 
     public function alerts(): HasMany

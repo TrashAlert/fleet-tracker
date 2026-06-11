@@ -19,7 +19,7 @@ class FleetController extends Controller
     public function dashboard()
     {
         $user  = auth()->user();
-        $query = Vehicle::with(['latestPosition', 'activeShipment'])
+        $query = Vehicle::with(['latestPosition', 'activeShipment', 'activeShipments'])
             ->where('is_active', true);
 
         // Drivers only see their own vehicle
@@ -260,29 +260,38 @@ class FleetController extends Controller
         $user = auth()->user();
 
         if (! $user->isDriver() || ! $user->vehicle_id) {
-            return response()->json(['near_destination' => false]);
+            return response()->json(['shipments' => []]);
         }
 
-        $vehicle  = Vehicle::with(['latestPosition', 'activeShipment'])->find($user->vehicle_id);
-        $shipment = $vehicle?->activeShipment;
+        $vehicle = Vehicle::with(['latestPosition', 'activeShipments'])->find($user->vehicle_id);
 
-        if (! $shipment || ! $vehicle?->latestPosition) {
-            return response()->json(['near_destination' => false]);
+        if (! $vehicle || ! $vehicle->latestPosition || $vehicle->activeShipments->isEmpty()) {
+            return response()->json(['shipments' => []]);
         }
 
-        $pos      = $vehicle->latestPosition;
-        $distance = $pos->distanceTo($shipment->destination_lat, $shipment->destination_lng);
+        $pos = $vehicle->latestPosition;
 
-        return response()->json([
-            'near_destination'    => $distance <= 200,
-            'distance_metres'     => round($distance),
-            'shipment_id'         => $shipment->id,
-            'tracking_code'       => $shipment->tracking_code,
-            'near_destination_at' => $shipment->near_destination_at?->toIso8601String(),
-            'left_radius_at'      => $shipment->left_radius_at?->toIso8601String(),
-            'delivery_flag_sent'  => $shipment->delivery_flag_sent,
-            'status'              => $shipment->status,
-        ]);
+        $shipments = $vehicle->activeShipments->map(function ($s) use ($pos) {
+            $distance = $pos->distanceTo($s->destination_lat, $s->destination_lng);
+            return [
+                'shipment_id'         => $s->id,
+                'tracking_code'       => $s->tracking_code,
+                'client_name'         => $s->client_name,
+                'destination_address' => $s->destination_address,
+                'expected_at'         => $s->expected_delivery_at?->format('d M Y, H:i'),
+                'status'              => $s->status,
+                'distance_metres'     => round($distance),
+                'near_destination'    => $distance <= 200,
+                'near_destination_at' => $s->near_destination_at?->toIso8601String(),
+                'left_radius_at'      => $s->left_radius_at?->toIso8601String(),
+                'delivery_flag_sent'  => $s->delivery_flag_sent,
+            ];
+        })
+        // Sort nearest first
+        ->sortBy('distance_metres')
+        ->values();
+
+        return response()->json(['shipments' => $shipments]);
     }
 
     /**
