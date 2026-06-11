@@ -25,6 +25,7 @@
                     <th>Email</th>
                     <th>Role</th>
                     <th>Linked Vehicle</th>
+                    <th>Phone</th>
                     <th>Status</th>
                     <th>Last Login</th>
                     <th style="width:100px; text-align:center;">Actions</th>
@@ -69,7 +70,7 @@
                     <td style="text-align:center;">
                         <div style="display:flex; gap:6px; justify-content:center;">
                             <button
-                                onclick="openEditModal({{ $user->id }}, {{ json_encode($user->only('name','email','role','vehicle_id','is_active')) }})"
+                                onclick="openEditModal({{ $user->id }}, {{ json_encode($user->only('name','email','phone','role','vehicle_id','is_active')) }})"
                                 style="background:var(--muted);border:none;border-radius:4px;padding:4px 9px;cursor:pointer;color:var(--text);font-size:11px;"
                                 title="Edit">✏️
                             </button>
@@ -122,6 +123,13 @@
             <div style="margin-bottom:16px;">
                 <label style="display:block; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--subtle); margin-bottom:6px;">Email Address</label>
                 <input id="f_email" type="email" placeholder="user@fleettrack.local" style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 13px; font-family:var(--font-mono); font-size:13px; color:var(--text); outline:none;">
+            </div>
+
+            {{-- Phone --}}
+            <div style="margin-bottom:16px;">
+                <label style="display:block; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--subtle); margin-bottom:6px;">Phone Number <span style="color:var(--muted);">(optional)</span></label>
+                <input id="f_phone" type="tel" placeholder="+60 1X-XXXXXXX" style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 13px; font-family:var(--font-mono); font-size:13px; color:var(--text); outline:none;">
+                <div style="font-size:10px; color:var(--subtle); margin-top:4px;">Required for drivers — shown on the client shipment tracking page.</div>
             </div>
 
             {{-- Password (create only) --}}
@@ -208,6 +216,7 @@ function openModal() {
     document.getElementById('submitBtn').textContent   = 'Create User';
     document.getElementById('passwordField').style.display = 'block';
     document.getElementById('f_name').value       = '';
+    document.getElementById('f_phone').value       = '';
     document.getElementById('f_email').value      = '';
     document.getElementById('f_password').value   = '';
     document.getElementById('f_role').value       = 'driver';
@@ -225,6 +234,7 @@ function openEditModal(id, data) {
     document.getElementById('passwordField').style.display = 'none';
     document.getElementById('f_name').value       = data.name;
     document.getElementById('f_email').value      = data.email;
+    document.getElementById('f_phone').value      = data.phone ?? '';
     document.getElementById('f_role').value       = data.role;
     document.getElementById('f_vehicle_id').value = data.vehicle_id ?? '';
     document.getElementById('f_is_active').checked = data.is_active == 1;
@@ -261,6 +271,7 @@ async function submitUser() {
     const body = {
         name:       document.getElementById('f_name').value,
         email:      document.getElementById('f_email').value,
+        phone:      document.getElementById('f_phone').value || null,
         role:       document.getElementById('f_role').value,
         vehicle_id: document.getElementById('f_vehicle_id').value || null,
         is_active:  document.getElementById('f_is_active').checked ? 1 : 0,

@@ -19,6 +19,7 @@ class ClientTrackingController extends Controller
         if ($code) {
             $shipment = Shipment::with([
                 'vehicle.latestPosition',
+                'vehicle.driver',
             ])->where('tracking_code', $code)->first();
         }
 
@@ -30,7 +31,7 @@ class ClientTrackingController extends Controller
      */
     public function status(string $trackingCode): JsonResponse
     {
-        $shipment = Shipment::with('vehicle.latestPosition')
+        $shipment = Shipment::with(['vehicle.latestPosition', 'vehicle.driver'])
             ->where('tracking_code', strtoupper($trackingCode))
             ->firstOrFail();
 

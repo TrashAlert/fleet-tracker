@@ -35,7 +35,16 @@
             <tr id="vrow-{{ $v->id }}" style="{{ !$v->is_active ? 'opacity:0.5;' : '' }}">
                 <td class="text-accent" style="font-weight:500;">{{ $v->name }}</td>
                 <td class="mono">{{ $v->plate_number }}</td>
-                <td>{{ $v->driver_name ?? '—' }}</td>
+                <td>
+                    @if($v->driver)
+                        <div style="font-size:12px;">{{ $v->driver->name }}</div>
+                        @if($v->driver->phone)
+                        <div style="font-size:10px; color:var(--subtle);">{{ $v->driver->phone }}</div>
+                        @endif
+                    @else
+                        <span class="text-subtle">—</span>
+                    @endif
+                </td>
                 <td class="mono" style="color:var(--subtle); font-size:11px;">{{ $v->mqtt_client_id }}</td>
                 <td class="mono">{{ number_format($v->telemetry_count) }}</td>
                 <td>
@@ -110,11 +119,22 @@
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                         <div>
                             <label class="flabel">Driver Name</label>
-                            <input name="driver_name" placeholder="Optional" class="finput">
+                            <select name="driver_user_id" class="finput" style="background:var(--bg); color:var(--text);">
+                                <option value="">— No driver assigned —</option>
+                                @foreach($availableDrivers as $d)
+                                <option value="{{ $d->id }}"
+                                    {{ $d->vehicle_id ? '(assigned to another vehicle)' : '' }}>
+                                    {{ $d->name }}{{ $d->vehicle_id ? ' *' : '' }}
+                                </option>
+                                @endforeach
+                            </select>
                         </div>
                         <div>
                             <label class="flabel">Driver Phone</label>
-                            <input name="driver_phone" placeholder="Optional" class="finput">
+                            <div style="font-size:10px; color:var(--subtle); padding:6px 0;">
+                                Driver name and contact are pulled from their user account.<br>
+                                * Already assigned to another vehicle.
+                            </div>
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary" style="margin-top:4px;">Register Vehicle</button>
@@ -149,7 +169,12 @@
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                     <div>
                         <label class="flabel">Driver Name</label>
-                        <input id="e-driver" class="finput" placeholder="Optional">
+                        <select id="e-driver-user-id" class="finput" style="background:var(--bg); color:var(--text);">
+                            <option value="">— No driver assigned —</option>
+                            @foreach($availableDrivers as $d)
+                            <option value="{{ $d->id }}">{{ $d->name }}</option>
+                            @endforeach
+                        </select>
                     </div>
                     <div>
                         <label class="flabel">Driver Phone</label>
@@ -245,8 +270,9 @@ function openEdit(v) {
     document.getElementById('e-name').value   = v.name;
     document.getElementById('e-plate').value  = v.plate_number;
     document.getElementById('e-mqtt').value   = v.mqtt_client_id;
-    document.getElementById('e-driver').value = v.driver_name  ?? '';
-    document.getElementById('e-phone').value  = v.driver_phone ?? '';
+    // Set the driver dropdown to the currently linked driver user id
+    const driverSel = document.getElementById('e-driver-user-id');
+    if (driverSel) driverSel.value = v.driver_user_id ?? '';
     document.getElementById('editMsg').style.display = 'none';
     document.getElementById('editModal').style.display = 'flex';
 }
@@ -258,8 +284,7 @@ async function submitEdit() {
         name:           document.getElementById('e-name').value,
         plate_number:   document.getElementById('e-plate').value,
         mqtt_client_id: document.getElementById('e-mqtt').value,
-        driver_name:    document.getElementById('e-driver').value,
-        driver_phone:   document.getElementById('e-phone').value,
+        driver_user_id: document.getElementById('e-driver-user-id').value || null,
     };
 
     try {
@@ -274,7 +299,7 @@ async function submitEdit() {
             msg.style.display = 'block';
             msg.style.background = '#16301e';
             msg.style.color = '#22c55e';
-            msg.textContent = 'Vehicle updated successfully.';
+            msg.textContent = 'Vehicle updated successfully.'; location.reload();
             setTimeout(() => location.reload(), 1200);
         } else {
             msg.style.display = 'block';

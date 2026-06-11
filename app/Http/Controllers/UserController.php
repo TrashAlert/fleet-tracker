@@ -23,6 +23,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name'       => 'required|string|max:100',
             'email'      => 'required|email|unique:users,email',
+            'phone'      => 'nullable|string|max:20',
             'password'   => ['required', Password::min(8)->mixedCase()->numbers()],
             'role'       => 'required|in:admin,manager,driver',
             'vehicle_id' => 'nullable|exists:vehicles,id',
@@ -54,6 +55,7 @@ class UserController extends Controller
         $data = $request->validate([
             'name'       => 'required|string|max:100',
             'email'      => 'required|email|unique:users,email,' . $user->id,
+            'phone'      => 'nullable|string|max:20',
             'role'       => 'required|in:admin,manager,driver',
             'vehicle_id' => 'nullable|exists:vehicles,id',
             'is_active'  => 'boolean',

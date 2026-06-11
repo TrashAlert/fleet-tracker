@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Alert;
 use App\Models\GpsTelemetry;
 use App\Models\Shipment;
+use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\ActivityLogger;
 use Illuminate\Http\JsonResponse;
@@ -62,7 +63,7 @@ class FleetController extends Controller
                 'id'           => $v->id,
                 'name'         => $v->name,
                 'plate'        => $v->plate_number,
-                'driver'       => $v->driver_name,
+                'driver'       => $v->driver?->name ?? $v->getRawOriginal('driver_name'),
                 'is_offline'   => $v->isOffline(),
                 'latitude'     => $v->latestPosition?->latitude,
                 'longitude'    => $v->latestPosition?->longitude,
@@ -119,8 +120,14 @@ class FleetController extends Controller
      */
     public function vehicles()
     {
-        $vehicles = Vehicle::withCount('telemetry')->paginate(20);
-        return view('fleet.vehicles', compact('vehicles'));
+        $vehicles = Vehicle::with('driver')->withCount('telemetry')->paginate(20);
+
+        // All driver users — to populate the assign driver dropdown
+        $availableDrivers = User::where('role', 'driver')
+            ->orderBy('name')
+            ->get(['id', 'name', 'phone', 'vehicle_id']);
+
+        return view('fleet.vehicles', compact('vehicles', 'availableDrivers'));
     }
 
     /**
@@ -178,7 +185,7 @@ class FleetController extends Controller
                 'id'          => $shipment->vehicle->id,
                 'name'        => $shipment->vehicle->name,
                 'plate'       => $shipment->vehicle->plate_number,
-                'driver'      => $shipment->vehicle->driver_name,
+                'driver'      => $shipment->vehicle->driver?->name ?? $shipment->vehicle->getRawOriginal('driver_name'),
                 'is_offline'  => $shipment->vehicle->isOffline(),
                 'latitude'    => $shipment->vehicle->latestPosition?->latitude,
                 'longitude'   => $shipment->vehicle->latestPosition?->longitude,
@@ -349,17 +356,25 @@ class FleetController extends Controller
             'name'           => 'required|string|max:100',
             'plate_number'   => 'required|string|max:20|unique:vehicles,plate_number',
             'mqtt_client_id' => 'required|string|max:100|unique:vehicles,mqtt_client_id',
-            'driver_name'    => 'nullable|string|max:100',
-            'driver_phone'   => 'nullable|string|max:20',
+            'driver_user_id' => 'nullable|exists:users,id',
         ]);
 
+        $driverUserId = $data['driver_user_id'] ?? null;
+        unset($data['driver_user_id']);
+
         $vehicle = Vehicle::create(array_merge($data, ['is_active' => true]));
+
+        // Link selected driver to this vehicle
+        if ($driverUserId) {
+            User::where('vehicle_id', $vehicle->id)->update(['vehicle_id' => null]);
+            User::where('id', $driverUserId)->update(['vehicle_id' => $vehicle->id]);
+        }
 
         ActivityLogger::logEvent(
             'vehicle_created',
             "Vehicle [{$vehicle->name}] registered with plate {$vehicle->plate_number}",
             'Vehicle', $vehicle->id, $vehicle->plate_number,
-            ['mqtt_client_id' => $vehicle->mqtt_client_id]
+            ['mqtt_client_id' => $vehicle->mqtt_client_id, 'driver_user_id' => $driverUserId]
         );
 
         return redirect()->route('fleet.vehicles')
@@ -372,20 +387,28 @@ class FleetController extends Controller
             'name'           => 'required|string|max:255',
             'plate_number'   => 'required|string|max:20|unique:vehicles,plate_number,' . $vehicle->id,
             'mqtt_client_id' => 'required|string|max:100|unique:vehicles,mqtt_client_id,' . $vehicle->id,
-            'driver_name'    => 'nullable|string|max:255',
-            'driver_phone'   => 'nullable|string|max:20',
+            'driver_user_id' => 'nullable|exists:users,id',
         ]);
 
+        $driverUserId = $data['driver_user_id'] ?? null;
+        unset($data['driver_user_id']);
+
         $vehicle->update($data);
+
+        // Relink driver — unlink old, link new
+        User::where('vehicle_id', $vehicle->id)->update(['vehicle_id' => null]);
+        if ($driverUserId) {
+            User::where('id', $driverUserId)->update(['vehicle_id' => $vehicle->id]);
+        }
 
         ActivityLogger::logEvent(
             'vehicle_updated',
             "Vehicle [{$vehicle->plate_number}] details updated",
             'Vehicle', $vehicle->id, $vehicle->plate_number,
-            ['changed_fields' => array_keys($data)]
+            ['changed_fields' => array_keys($data), 'driver_user_id' => $driverUserId]
         );
 
-        return response()->json(['ok' => true, 'vehicle' => $vehicle]);
+        return response()->json(['ok' => true, 'vehicle' => $vehicle->fresh()]);
     }
 
     /**
