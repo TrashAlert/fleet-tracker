@@ -333,13 +333,147 @@
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
             .grid-3 { grid-template-columns: 1fr; }
         }
+
+        /* ── Mobile top bar (hidden on desktop) ── */
+        .mobile-topbar {
+            display: none;
+            position: sticky;
+            top: 0;
+            z-index: 300;
+            height: 52px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+        }
+        .mobile-topbar .wordmark {
+            font-family: var(--font-display);
+            font-weight: 800;
+            font-size: 16px;
+            color: var(--accent);
+        }
+        .hamburger {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 9px;
+            color: var(--text);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+
+        /* ── Sidebar backdrop for mobile drawer ── */
+        .sidebar-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.55);
+            z-index: 399;
+        }
+
+        /* ── Bottom nav (driver mobile only) ── */
+        .bottom-nav {
+            display: none;
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            z-index: 300;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
+        }
+        .bottom-nav-inner {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+        .bottom-nav a, .bottom-nav button {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            background: none;
+            border: none;
+            color: var(--subtle);
+            text-decoration: none;
+            font-family: var(--font-mono);
+            font-size: 9px;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+            padding: 6px 18px;
+            cursor: pointer;
+            border-radius: 8px;
+        }
+        .bottom-nav a.active { color: var(--accent); }
+        .bottom-nav svg { width: 20px; height: 20px; }
+
+        /* ── Mobile layout ── */
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+
+            .mobile-topbar { display: flex; }
+
+            /* Sidebar becomes a slide-in drawer */
+            .sidebar {
+                position: fixed;
+                top: 0; left: 0;
+                height: 100vh;
+                width: 260px;
+                z-index: 400;
+                transform: translateX(-100%);
+                transition: transform .25s cubic-bezier(.4,0,.2,1);
+                box-shadow: 8px 0 32px rgba(0,0,0,.5);
+            }
+            .sidebar.open { transform: translateX(0); }
+            .sidebar-backdrop.show { display: block; }
+
+            /* Hide desktop topbar on mobile (mobile-topbar replaces it) */
+            .topbar { display: none; }
+
+            .content { padding: 14px; }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+            .stat-tile { padding: 13px; }
+            .stat-value { font-size: 22px; }
+
+            .grid-2, .grid-3 { grid-template-columns: 1fr; gap: 12px; }
+
+            /* Tables scroll horizontally instead of squishing */
+            .data-table { min-width: 640px; }
+            .card > div[style*="overflow-x"] { -webkit-overflow-scrolling: touch; }
+
+            /* Bigger touch targets */
+            .btn { padding: 10px 16px; }
+
+            /* Bottom nav visible for drivers — body padding so content isn't hidden */
+            body.has-bottom-nav .bottom-nav { display: block; }
+            body.has-bottom-nav .content { padding-bottom: 76px; }
+            body.has-bottom-nav .mobile-topbar .hamburger { display: none; }
+        }
     </style>
     @stack('styles')
 </head>
-<body>
+<body class="{{ auth()->user()?->isDriver() ? 'has-bottom-nav' : '' }}">
+
+{{-- Mobile top bar (mobile only) --}}
+<header class="mobile-topbar">
+    <div class="wordmark">FleetTrack</div>
+    <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+    </button>
+</header>
+
+{{-- Backdrop for mobile drawer --}}
+<div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleSidebar()"></div>
 
 {{-- Sidebar --}}
-<aside class="sidebar">
+<aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
         <div class="wordmark">FleetTrack</div>
         <div class="tagline">GPS Control System</div>
@@ -424,6 +558,44 @@
         @yield('content')
     </div>
 </div>
+
+{{-- Bottom nav — driver mobile only --}}
+@if(auth()->user()?->isDriver())
+<nav class="bottom-nav">
+    <div class="bottom-nav-inner">
+        <a href="{{ route('fleet.dashboard') }}" class="{{ request()->routeIs('fleet.dashboard') ? 'active' : '' }}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+            Dashboard
+        </a>
+        <a href="{{ route('fleet.shipments') }}" class="{{ request()->routeIs('fleet.shipments') ? 'active' : '' }}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            Deliveries
+        </a>
+        <button onclick="document.getElementById('mobile-logout-form').submit()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Sign Out
+        </button>
+    </div>
+</nav>
+<form id="mobile-logout-form" method="POST" action="{{ route('auth.logout') }}" style="display:none;">
+    @csrf
+</form>
+@endif
+
+{{-- Sidebar drawer toggle --}}
+<script>
+function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebar-backdrop').classList.toggle('show');
+}
+// Close drawer when a nav link is tapped
+document.querySelectorAll('.sidebar .nav-item').forEach(link => {
+    link.addEventListener('click', () => {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebar-backdrop').classList.remove('show');
+    });
+});
+</script>
 
 {{-- Leaflet JS --}}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

@@ -30,14 +30,55 @@
 {{-- ── Map + Alerts ─────────────────────────────────────────────────────── --}}
 <div class="grid-3" style="margin-bottom:20px;">
 
-    {{-- Live Map --}}
+    {{-- Live Map + Trip History --}}
     <div class="card" style="min-height:520px; display:flex; flex-direction:column;">
-        <div class="card-header">
-            <span class="card-title">Live Map</span>
-            <span style="font-size:10px; color:var(--accent);" id="map-updated">—</span>
+        <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+            <span class="card-title" id="map-title">Live Map</span>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                {{-- Trip history controls --}}
+                <select id="history-vehicle" class="history-input">
+                    <option value="">Trip History...</option>
+                    @foreach($vehicles as $v)
+                        <option value="{{ $v->id }}">{{ $v->plate_number }}</option>
+                    @endforeach
+                </select>
+                <input type="date" id="history-date" class="history-input"
+                       value="{{ now()->format('Y-m-d') }}" max="{{ now()->format('Y-m-d') }}">
+                <button onclick="loadTripHistory()" class="btn btn-ghost" style="padding:5px 12px; font-size:11px;">
+                    View Route
+                </button>
+                <button onclick="exitHistoryMode()" id="exit-history-btn" class="btn btn-ghost"
+                        style="padding:5px 12px; font-size:11px; display:none; color:var(--accent); border-color:var(--accent);">
+                    Back to Live
+                </button>
+                <span style="font-size:10px; color:var(--accent);" id="map-updated">—</span>
+            </div>
         </div>
+
+        {{-- History summary strip (hidden until route loaded) --}}
+        <div id="history-summary" style="display:none; padding:10px 18px; border-bottom:1px solid var(--border); background:rgba(0,229,255,0.03);">
+            <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:11px;">
+                <div><span style="color:var(--subtle);">Points:</span> <span class="mono" id="hs-points">—</span></div>
+                <div><span style="color:var(--subtle);">Distance:</span> <span class="mono" id="hs-distance">—</span></div>
+                <div><span style="color:var(--subtle);">Duration:</span> <span class="mono" id="hs-duration">—</span></div>
+                <div><span style="color:var(--subtle);">Avg Speed:</span> <span class="mono" id="hs-avg-speed">—</span></div>
+                <div><span style="color:var(--subtle);">Max Speed:</span> <span class="mono" id="hs-max-speed">—</span></div>
+            </div>
+        </div>
+
         <div style="flex:1; position:relative;">
             <div id="fleet-map" style="position:absolute; inset:0; height:100%;"></div>
+
+            {{-- Speed legend (history mode only) --}}
+            <div id="speed-legend" style="display:none; position:absolute; bottom:14px; left:14px; z-index:500;
+                background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 14px;">
+                <div style="font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--subtle); margin-bottom:6px;">Speed</div>
+                <div style="display:flex; align-items:center; gap:6px; font-size:10px;">
+                    <span style="width:24px; height:4px; background:#22c55e; border-radius:2px;"></span> &lt;60
+                    <span style="width:24px; height:4px; background:#f59e0b; border-radius:2px; margin-left:8px;"></span> 60–110
+                    <span style="width:24px; height:4px; background:#ef4444; border-radius:2px; margin-left:8px;"></span> &gt;110 km/h
+                </div>
+            </div>
         </div>
     </div>
 
@@ -142,6 +183,19 @@
 .vehicle-popup        { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 .vehicle-popup strong { color: #00e5ff; }
 
+.history-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 5px 9px;
+    outline: none;
+}
+.history-input:focus { border-color: var(--accent); }
+.history-input option { background: var(--surface); }
+
 /* Alert icon SVG colours */
 .alert-icon.overspeed svg { stroke: var(--danger); }
 .alert-icon.delay     svg { stroke: var(--warning); }
@@ -178,6 +232,7 @@ const markers = {};
 
 // ── Live positions — poll every 5s ────────────────────────────────────────
 async function fetchLivePositions() {
+    if (historyMode) return;   // paused while viewing trip history
     try {
         const res  = await fetch('{{ route("fleet.api.live") }}', {
             headers: { 'Accept': 'application/json' }
@@ -304,10 +359,169 @@ async function fetchNewAlerts() {
     } catch(e) { console.error('Alert fetch error:', e); }
 }
 
+// ── Trip History ──────────────────────────────────────────────────────────
+let historyMode    = false;
+let historyLayers  = [];   // polyline segments + markers
+let livePollTimer  = null;
+
+function speedColor(kmh) {
+    if (kmh > 110) return '#ef4444';   // overspeed — red
+    if (kmh >= 60) return '#f59e0b';   // moderate — amber
+    return '#22c55e';                  // slow — green
+}
+
+function clearHistoryLayers() {
+    historyLayers.forEach(l => map.removeLayer(l));
+    historyLayers = [];
+}
+
+async function loadTripHistory() {
+    const vehicleId = document.getElementById('history-vehicle').value;
+    const date      = document.getElementById('history-date').value;
+
+    if (!vehicleId) { alert('Select a vehicle first.'); return; }
+    if (!date)      { alert('Select a date.'); return; }
+
+    try {
+        const res = await fetch(`/fleet/api/vehicle/${vehicleId}/history?date=${date}`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        const points = await res.json();
+
+        if (!Array.isArray(points) || points.length === 0) {
+            alert('No GPS data recorded for this vehicle on ' + date + '.');
+            return;
+        }
+
+        // Enter history mode — stop live updates, hide live markers
+        enterHistoryMode();
+        clearHistoryLayers();
+
+        // ── Draw speed-coloured polyline segments ──
+        let totalDistance = 0;
+        let maxSpeed      = 0;
+        let speedSum      = 0;
+
+        for (let i = 1; i < points.length; i++) {
+            const a = points[i - 1];
+            const b = points[i];
+            const seg = L.polyline(
+                [[a.latitude, a.longitude], [b.latitude, b.longitude]],
+                { color: speedColor(b.speed_kmh), weight: 4, opacity: 0.85 }
+            ).addTo(map);
+            historyLayers.push(seg);
+
+            totalDistance += haversine(a.latitude, a.longitude, b.latitude, b.longitude);
+            maxSpeed = Math.max(maxSpeed, b.speed_kmh ?? 0);
+            speedSum += (b.speed_kmh ?? 0);
+        }
+
+        // ── Start + end markers ──
+        const startP = points[0];
+        const endP   = points[points.length - 1];
+
+        const startMarker = L.marker([startP.latitude, startP.longitude], {
+            icon: L.divIcon({
+                className: '',
+                html: `<div style="width:14px;height:14px;border-radius:50%;background:#22c55e;border:3px solid #fff;box-shadow:0 0 8px #22c55e99;"></div>`,
+                iconSize: [14, 14], iconAnchor: [7, 7],
+            })
+        }).addTo(map).bindPopup(`<b>Start</b><br>${fmtTime(startP.recorded_at)}`);
+
+        const endMarker = L.marker([endP.latitude, endP.longitude], {
+            icon: L.divIcon({
+                className: '',
+                html: `<div style="width:14px;height:14px;border-radius:50%;background:#ef4444;border:3px solid #fff;box-shadow:0 0 8px #ef444499;"></div>`,
+                iconSize: [14, 14], iconAnchor: [7, 7],
+            })
+        }).addTo(map).bindPopup(`<b>End</b><br>${fmtTime(endP.recorded_at)}`);
+
+        historyLayers.push(startMarker, endMarker);
+
+        // ── Fit map to route ──
+        const bounds = points.map(p => [p.latitude, p.longitude]);
+        map.fitBounds(bounds, { padding: [40, 40] });
+
+        // ── Summary stats ──
+        const durationMs  = new Date(endP.recorded_at) - new Date(startP.recorded_at);
+        const durationMin = Math.round(durationMs / 60000);
+        const avgSpeed    = points.length > 1 ? (speedSum / (points.length - 1)) : 0;
+
+        document.getElementById('hs-points').textContent    = points.length.toLocaleString();
+        document.getElementById('hs-distance').textContent  = totalDistance >= 1000
+            ? (totalDistance / 1000).toFixed(2) + ' km'
+            : Math.round(totalDistance) + ' m';
+        document.getElementById('hs-duration').textContent  = durationMin >= 60
+            ? Math.floor(durationMin / 60) + 'h ' + (durationMin % 60) + 'm'
+            : durationMin + ' min';
+        document.getElementById('hs-avg-speed').textContent = avgSpeed.toFixed(1) + ' km/h';
+        document.getElementById('hs-max-speed').textContent = maxSpeed.toFixed(1) + ' km/h';
+        document.getElementById('history-summary').style.display = 'block';
+
+    } catch(e) {
+        console.error('Trip history error:', e);
+        alert('Failed to load trip history.');
+    }
+}
+
+function enterHistoryMode() {
+    if (historyMode) return;
+    historyMode = true;
+
+    // Stop live polling
+    if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
+
+    // Hide live vehicle markers
+    Object.values(markers).forEach(m => map.removeLayer(m));
+
+    // UI state
+    const vSel = document.getElementById('history-vehicle');
+    const vName = vSel.options[vSel.selectedIndex].text;
+    document.getElementById('map-title').textContent = 'Trip History — ' + vName;
+    document.getElementById('exit-history-btn').style.display = 'inline-flex';
+    document.getElementById('speed-legend').style.display = 'block';
+    document.getElementById('map-updated').textContent = '';
+}
+
+function exitHistoryMode() {
+    historyMode = false;
+
+    clearHistoryLayers();
+
+    // Restore live markers
+    Object.values(markers).forEach(m => m.addTo(map));
+
+    // UI state
+    document.getElementById('map-title').textContent = 'Live Map';
+    document.getElementById('exit-history-btn').style.display = 'none';
+    document.getElementById('speed-legend').style.display = 'none';
+    document.getElementById('history-summary').style.display = 'none';
+    document.getElementById('history-vehicle').value = '';
+
+    // Resume live polling immediately
+    fetchLivePositions();
+    livePollTimer = setInterval(fetchLivePositions, 5000);
+}
+
+// Haversine — metres between two coordinates
+function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function fmtTime(iso) {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────
 fetchLivePositions();
 fetchNewAlerts();
-setInterval(fetchLivePositions, 5000);
+livePollTimer = setInterval(fetchLivePositions, 5000);
 setInterval(fetchNewAlerts, 10000);
 </script>
 @endpush

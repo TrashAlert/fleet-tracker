@@ -199,6 +199,50 @@
 .vehicle-popup strong { color: #00e5ff; }
 .alert-icon.overspeed svg { stroke: var(--danger); }
 .alert-icon.delay     svg { stroke: var(--warning); }
+
+/* ── Driver dashboard mobile ── */
+@media (max-width: 768px) {
+    /* Map card shorter on phones so deliveries are visible without scrolling far */
+    .card[style*="min-height:480px"] {
+        min-height: 300px !important;
+    }
+    #fleet-map { min-height: 300px; }
+
+    /* Stat tiles — keep 2-col but tighter */
+    .stats-grid { gap: 8px; margin-bottom: 14px !important; }
+
+    /* Vehicle details strip — 2 cols instead of 5 */
+    .card div[style*="grid-template-columns:repeat(5,1fr)"] {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+    .card div[style*="grid-template-columns:repeat(5,1fr)"] > div {
+        border-right: none !important;
+        border-bottom: 1px solid var(--border);
+    }
+
+    /* Confirmation banners — stack button below text, full width tap target */
+    #delivery-banners > div > div {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+    #delivery-banners button {
+        width: 100%;
+        padding: 14px !important;
+        font-size: 14px !important;
+    }
+
+    /* Deliveries list — taller scroll area, larger rows */
+    #deliveries-list {
+        max-height: 380px !important;
+    }
+    .delivery-item { padding: 16px 0 !important; }
+
+    /* On mobile: deliveries + alerts column shows ABOVE the map.
+       grid-3 collapses to 1 column at this width; use order to flip. */
+    .grid-3 { display: flex !important; flex-direction: column; }
+    .grid-3 > .card:first-child { order: 2; }   /* map second */
+    .grid-3 > div:last-child   { order: 1; }   /* deliveries/alerts first */
+}
 </style>
 @endpush
 
