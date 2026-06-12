@@ -155,9 +155,18 @@ class FleetController extends Controller
         $statusCounts = $countQuery->selectRaw('status, count(*) as total')
             ->groupBy('status')->pluck('total', 'status')->toArray();
 
-        $vehicles = Vehicle::where('is_active', true)->get(['id', 'plate_number', 'name']);
+        // Vehicles with their current workload — least busy first
+        $vehicles = Vehicle::where('is_active', true)
+            ->withCount(['shipments as active_shipments_count' => function ($q) {
+                $q->whereIn('status', ['pending', 'in_transit', 'delayed']);
+            }])
+            ->orderBy('active_shipments_count')
+            ->orderBy('plate_number')
+            ->get(['id', 'plate_number', 'name']);
 
-        return view('fleet.shipments', compact('shipments', 'statusCounts', 'vehicles'));
+        $maxActive = config('fleet.max_active_shipments', 10);
+
+        return view('fleet.shipments', compact('shipments', 'statusCounts', 'vehicles', 'maxActive'));
     }
 
     /**
@@ -201,6 +210,48 @@ class FleetController extends Controller
     }
 
     /**
+     * Driver starts a delivery — acknowledges the shipment, pending → in_transit.
+     * One at a time: rejected if another shipment is already in transit.
+     */
+    public function startDelivery(Request $request, Shipment $shipment): JsonResponse
+    {
+        $user = auth()->user();
+
+        // Only the driver of this vehicle can start it
+        if ($user->isDriver() && $user->vehicle_id !== $shipment->vehicle_id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
+
+        if ($shipment->status !== 'pending') {
+            return response()->json(['error' => 'This shipment has already been started.'], 422);
+        }
+
+        // One at a time — block if another shipment is already in progress
+        $inProgress = Shipment::where('vehicle_id', $shipment->vehicle_id)
+            ->whereIn('status', ['in_transit', 'delayed'])
+            ->where('id', '!=', $shipment->id)
+            ->first();
+
+        if ($inProgress) {
+            return response()->json([
+                'error' => "Finish your current delivery ({$inProgress->tracking_code}) before starting a new one.",
+            ], 422);
+        }
+
+        $shipment->update(['status' => 'in_transit']);
+
+        ActivityLogger::logEvent(
+            'shipment_started',
+            "Driver {$user->name} acknowledged and started shipment {$shipment->tracking_code}",
+            'Shipment', $shipment->id, $shipment->tracking_code,
+            ['started_by' => $user->name, 'vehicle_id' => $shipment->vehicle_id],
+            ['causer_type' => 'web', 'causer_label' => $user->name]
+        );
+
+        return response()->json(['ok' => true, 'tracking_code' => $shipment->tracking_code]);
+    }
+
+    /**
      * Driver confirms delivery — validates they are still within radius.
      */
     public function confirmDelivery(Request $request, Shipment $shipment): JsonResponse
@@ -212,9 +263,9 @@ class FleetController extends Controller
             return response()->json(['error' => 'Unauthorized.'], 403);
         }
 
-        // Shipment must be active
-        if (! in_array($shipment->status, ['pending', 'in_transit', 'delayed'])) {
-            return response()->json(['error' => 'Shipment is not in an active state.'], 422);
+        // Shipment must be started first (one-at-a-time flow)
+        if (! in_array($shipment->status, ['in_transit', 'delayed'])) {
+            return response()->json(['error' => 'Start this delivery before confirming it.'], 422);
         }
 
         // Must have entered the radius first
@@ -335,6 +386,18 @@ class FleetController extends Controller
             'destination_lng'      => 'required|numeric|between:-180,180',
             'expected_delivery_at' => 'required|date',
         ]);
+
+        // Enforce the per-vehicle active shipment cap
+        $maxActive   = config('fleet.max_active_shipments', 10);
+        $activeCount = Shipment::where('vehicle_id', $data['vehicle_id'])
+            ->whereIn('status', ['pending', 'in_transit', 'delayed'])
+            ->count();
+
+        if ($activeCount >= $maxActive) {
+            return response()->json([
+                'message' => "This vehicle already has {$activeCount} active deliveries (max {$maxActive}). Assign to another vehicle or wait for deliveries to complete.",
+            ], 422);
+        }
 
         // Cast coords to float so MySQL doesn't reject string values
         $data['destination_lat'] = (float) $data['destination_lat'];

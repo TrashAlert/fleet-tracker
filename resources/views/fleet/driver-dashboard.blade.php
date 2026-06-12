@@ -92,12 +92,22 @@
                     $distance = $pos ? round($pos->distanceTo($s->destination_lat, $s->destination_lng)) : null;
                     $overdue  = $s->expected_delivery_at && $s->expected_delivery_at->isPast();
                 @endphp
+                @php $isStarted = in_array($s->status, ['in_transit', 'delayed']); @endphp
                 <div class="delivery-item" id="delivery-{{ $s->id }}" data-distance="{{ $distance ?? 999999 }}"
-                    style="padding:13px 0; border-bottom:1px solid var(--border);">
+                    data-status="{{ $s->status }}"
+                    style="padding:13px 0; border-bottom:1px solid var(--border);
+                           {{ $isStarted ? 'background:rgba(0,229,255,0.04); margin:0 -18px; padding-left:18px; padding-right:18px; border-left:3px solid var(--accent);' : '' }}">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
                         <div style="min-width:0;">
-                            <div style="font-family:var(--font-display); font-size:13px; font-weight:700; color:var(--accent);">
-                                {{ $s->tracking_code }}
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-family:var(--font-display); font-size:13px; font-weight:700; color:var(--accent);">
+                                    {{ $s->tracking_code }}
+                                </span>
+                                @if($s->status === 'in_transit')
+                                    <span class="pill pill-transit" style="font-size:8px;">In Progress</span>
+                                @elseif($s->status === 'delayed')
+                                    <span class="pill pill-delayed" style="font-size:8px;">Delayed</span>
+                                @endif
                             </div>
                             <div style="font-size:11px; margin-top:3px;">{{ $s->client_name }}</div>
                             <div style="font-size:10px; color:var(--subtle); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
@@ -115,6 +125,17 @@
                             <div style="font-size:9px; color:var(--subtle); margin-top:2px;">away</div>
                         </div>
                     </div>
+                    @if($s->status === 'pending')
+                    <button class="start-delivery-btn" onclick="startDelivery({{ $s->id }}, '{{ $s->tracking_code }}')"
+                        style="margin-top:10px; width:100%; background:var(--muted); color:var(--text);
+                               border:1px solid var(--border); border-radius:6px; padding:9px;
+                               font-family:var(--font-mono); font-size:11px; cursor:pointer;
+                               transition:all .15s;"
+                        onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
+                        onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text)';">
+                        Start Delivery
+                    </button>
+                    @endif
                 </div>
                 @empty
                 <div style="text-align:center; padding:24px 0; color:var(--subtle); font-size:12px;">
@@ -517,6 +538,49 @@ async function fetchDeliveryStatus() {
 
     } catch(e) { console.error('Delivery status error:', e); }
 }
+
+// ── Start delivery (driver acknowledgement, one at a time) ────────────────
+async function startDelivery(shipmentId, trackingCode) {
+    if (!confirm(`Start delivery ${trackingCode}? Make sure you have reviewed the shipment details and loaded the goods.`)) return;
+
+    try {
+        const res  = await fetch(`/fleet/api/shipments/${shipmentId}/start-delivery`, {
+            method:  'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept':       'application/json',
+                'X-CSRF-TOKEN': CSRF,
+            },
+        });
+        const json = await res.json();
+
+        if (!res.ok) {
+            alert(json.error || 'Could not start delivery.');
+            return;
+        }
+
+        // Reload to reflect new status, highlight, and banner eligibility
+        location.reload();
+
+    } catch(e) {
+        alert('Network error — please try again.');
+    }
+}
+
+// Disable all Start buttons if any delivery is already in progress
+function updateStartButtons() {
+    const inProgress = document.querySelector('.delivery-item[data-status="in_transit"], .delivery-item[data-status="delayed"]');
+    document.querySelectorAll('.start-delivery-btn').forEach(btn => {
+        if (inProgress) {
+            btn.disabled            = true;
+            btn.style.opacity       = '.4';
+            btn.style.cursor        = 'not-allowed';
+            btn.textContent         = 'Finish current delivery first';
+            btn.onmouseover = btn.onmouseout = null;
+        }
+    });
+}
+updateStartButtons();
 
 // ── Confirm delivery (per shipment) ───────────────────────────────────────
 async function confirmDelivery(shipmentId) {

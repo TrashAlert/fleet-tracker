@@ -310,11 +310,18 @@
             <div style="font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border);">Vehicle</div>
             <div style="margin-bottom:14px;">
                 <select id="c_vehicle_id" style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:10px 13px; font-family:var(--font-mono); font-size:13px; color:var(--text); outline:none;">
-                    <option value="">— Select vehicle —</option>
+                    <option value="">— Select vehicle (least busy first) —</option>
                     @foreach($vehicles as $v)
-                        <option value="{{ $v->id }}">{{ $v->plate_number }} — {{ $v->name }}</option>
+                        @php $isFull = $v->active_shipments_count >= $maxActive; @endphp
+                        <option value="{{ $v->id }}" @disabled($isFull)>
+                            {{ $v->plate_number }} — {{ $v->name }}
+                            ({{ $v->active_shipments_count }} active{{ $isFull ? ' — FULL' : '' }})
+                        </option>
                     @endforeach
                 </select>
+                <div style="font-size:10px; color:var(--subtle); margin-top:5px;">
+                    Sorted by workload. Vehicles at {{ $maxActive }} active deliveries cannot accept more.
+                </div>
             </div>
 
             {{-- Section: Client --}}
@@ -376,11 +383,11 @@
                     <div style="display:flex; gap:0; border:1px solid var(--border); border-radius:6px; overflow:hidden;">
                         <button type="button" id="tabMap" onclick="switchCoordTab('map')"
                             style="padding:4px 12px; font-size:10px; font-family:var(--font-mono); border:none; cursor:pointer; transition:all .15s; background:var(--accent); color:#000;">
-                            📍 Pin on Map
+                            Pin on Map
                         </button>
                         <button type="button" id="tabManual" onclick="switchCoordTab('manual')"
                             style="padding:4px 12px; font-size:10px; font-family:var(--font-mono); border:none; cursor:pointer; transition:all .15s; background:var(--muted); color:var(--subtle);">
-                            ✏️ Manual
+                            Manual
                         </button>
                     </div>
                 </div>

@@ -57,6 +57,9 @@
                     <td style="font-size:12px; color:var(--subtle);">
                         {{ $user->vehicle?->plate_number ?? '—' }}
                     </td>
+                    <td class="mono" style="font-size:11px;">
+                        {{ $user->phone ?? '—' }}
+                    </td>
                     <td>
                         @if($user->is_active)
                             <span class="pill pill-online">Active</span>
@@ -71,19 +74,22 @@
                         <div style="display:flex; gap:6px; justify-content:center;">
                             <button
                                 onclick="openEditModal({{ $user->id }}, {{ json_encode($user->only('name','email','phone','role','vehicle_id','is_active')) }})"
-                                style="background:var(--muted);border:none;border-radius:4px;padding:4px 9px;cursor:pointer;color:var(--text);font-size:11px;"
-                                title="Edit">✏️
+                                style="background:var(--muted);border:none;border-radius:4px;padding:5px 8px;cursor:pointer;color:var(--text);display:inline-flex;align-items:center;"
+                                title="Edit">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             </button>
                             <button
                                 onclick="openPasswordModal({{ $user->id }}, '{{ $user->name }}')"
-                                style="background:var(--muted);border:none;border-radius:4px;padding:4px 9px;cursor:pointer;color:var(--subtle);font-size:11px;"
-                                title="Reset Password">🔑
+                                style="background:var(--muted);border:none;border-radius:4px;padding:5px 8px;cursor:pointer;color:var(--subtle);display:inline-flex;align-items:center;"
+                                title="Reset Password">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                             </button>
                             @if($user->id !== auth()->id())
                             <button
                                 onclick="deleteUser({{ $user->id }}, '{{ $user->name }}')"
-                                style="background:rgba(239,68,68,0.1);border:none;border-radius:4px;padding:4px 9px;cursor:pointer;color:var(--danger);font-size:11px;"
-                                title="Delete">🗑
+                                style="background:rgba(239,68,68,0.1);border:none;border-radius:4px;padding:5px 8px;cursor:pointer;color:var(--danger);display:inline-flex;align-items:center;"
+                                title="Delete">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                             </button>
                             @endif
                         </div>
@@ -91,7 +97,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="7" style="text-align:center; padding:48px; color:var(--subtle);">
+                    <td colspan="8" style="text-align:center; padding:48px; color:var(--subtle);">
                         No users found. Add one above.
                     </td>
                 </tr>

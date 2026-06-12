@@ -159,12 +159,18 @@ class MqttSubscriber extends Command
 
     private function checkDeliveryStatus(Vehicle $vehicle, GpsTelemetry $telemetry): void
     {
-        // Check every active shipment — a vehicle may carry multiple deliveries
         $shipments = $vehicle->activeShipments;
         if ($shipments->isEmpty()) return;
 
         foreach ($shipments as $shipment) {
-            $this->checkShipmentRadius($vehicle, $telemetry, $shipment);
+            // Radius monitoring only applies to started shipments.
+            // Pending shipments are skipped until the driver acknowledges them,
+            // but delay detection still runs for them (client should know either way).
+            if (in_array($shipment->status, ['in_transit', 'delayed'])) {
+                $this->checkShipmentRadius($vehicle, $telemetry, $shipment);
+            } else {
+                $this->checkShipmentDelay($vehicle, $shipment);
+            }
         }
     }
 
@@ -241,28 +247,45 @@ class MqttSubscriber extends Command
         }
 
         // ── Delay check (independent of radius logic) ─────────────────────
-        if ($shipment->isDelayed() && ! $shipment->delay_notified) {
+        $this->checkShipmentDelay($vehicle, $shipment);
+    }
+
+    /**
+     * Delay detection — runs for every active shipment including pending
+     * (client should be notified their delivery is late regardless of
+     * whether the driver has started it).
+     */
+    private function checkShipmentDelay(Vehicle $vehicle, Shipment $shipment): void
+    {
+        if (! $shipment->isDelayed() || $shipment->delay_notified) return;
+
+        // Pending shipments keep their status so the driver can still "start"
+        // them normally — they only get the alert + client notification.
+        // Started shipments (in_transit) flip to delayed.
+        if ($shipment->status === 'in_transit') {
             $shipment->update(['status' => 'delayed', 'delay_notified' => true]);
-
-            Alert::create([
-                'vehicle_id'   => $vehicle->id,
-                'shipment_id'  => $shipment->id,
-                'type'         => 'delay',
-                'message'      => "Shipment {$shipment->tracking_code} is delayed for client {$shipment->client_name}.",
-                'meta'         => ['expected_at' => $shipment->expected_delivery_at],
-                'triggered_at' => now(),
-            ]);
-
-            $shipment->notify(new DeliveryDelayedNotification($shipment));
-            Log::info("Delay alert sent for shipment {$shipment->tracking_code}.");
-            ActivityLogger::logEvent(
-                'shipment_delayed',
-                "Shipment {$shipment->tracking_code} marked as delayed — client {$shipment->client_name} notified",
-                'Shipment', $shipment->id, $shipment->tracking_code,
-                ['expected_at' => $shipment->expected_delivery_at, 'client_email' => $shipment->client_email],
-                ['causer_type' => 'system']
-            );
+        } else {
+            $shipment->update(['delay_notified' => true]);
         }
+
+        Alert::create([
+            'vehicle_id'   => $vehicle->id,
+            'shipment_id'  => $shipment->id,
+            'type'         => 'delay',
+            'message'      => "Shipment {$shipment->tracking_code} is delayed for client {$shipment->client_name}.",
+            'meta'         => ['expected_at' => $shipment->expected_delivery_at],
+            'triggered_at' => now(),
+        ]);
+
+        $shipment->notify(new DeliveryDelayedNotification($shipment));
+        Log::info("Delay alert sent for shipment {$shipment->tracking_code}.");
+        ActivityLogger::logEvent(
+            'shipment_delayed',
+            "Shipment {$shipment->tracking_code} marked as delayed — client {$shipment->client_name} notified",
+            'Shipment', $shipment->id, $shipment->tracking_code,
+            ['expected_at' => $shipment->expected_delivery_at, 'client_email' => $shipment->client_email],
+            ['causer_type' => 'system']
+        );
     }
 
     /**

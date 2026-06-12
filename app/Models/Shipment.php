@@ -46,6 +46,9 @@ class Shipment extends Model
         'expected_delivery_at' => 'datetime',
         'actual_delivery_at'   => 'datetime',
         'delay_notified'       => 'boolean',
+        'near_destination_at'   => 'datetime',
+        'left_radius_at'        => 'datetime',
+        'delivery_flag_sent'    => 'boolean',
     ];
 
     protected static function boot(): void
