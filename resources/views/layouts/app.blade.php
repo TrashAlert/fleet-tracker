@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script>
+        // Apply saved theme before first paint to prevent flash
+        (function () {
+            const saved = localStorage.getItem('fleet-theme');
+            if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+        })();
+    </script>
     <title>@yield('title', 'Fleet Control') — FleetTrack</title>
 
     {{-- Leaflet CSS --}}
@@ -29,6 +36,66 @@
             --font-display: 'Syne', sans-serif;
             --font-mono:    'JetBrains Mono', monospace;
         }
+
+        /* ── Light theme ── */
+        html[data-theme="light"] {
+            --bg:        #f4f3ef;
+            --surface:   #ffffff;
+            --border:    #e2e0d8;
+            --muted:     #ecebe5;
+            --text:      #1a1a1a;
+            --subtle:    #6b6b6b;
+            --accent:    #0077b6;
+            --accent2:   #e85d2f;
+            --success:   #16a34a;
+            --warning:   #d97706;
+            --danger:    #dc2626;
+        }
+
+        /* Light theme — pill backgrounds (dark hardcoded versions don't work on light) */
+        html[data-theme="light"] .pill-online    { background: #dcf2e4; color: var(--success); }
+        html[data-theme="light"] .pill-offline   { background: #fde3e3; color: var(--danger); }
+        html[data-theme="light"] .pill-transit   { background: #ddeefa; color: var(--accent); }
+        html[data-theme="light"] .pill-delayed   { background: #fbecd4; color: var(--warning); }
+        html[data-theme="light"] .pill-delivered { background: #dcf2e4; color: var(--success); }
+
+        /* Light theme — alert icon tiles */
+        html[data-theme="light"] .alert-icon.overspeed { background: #fde3e3; }
+        html[data-theme="light"] .alert-icon.delay     { background: #fbecd4; }
+        html[data-theme="light"] .alert-icon.offline   { background: #e8e8f0; }
+
+        /* Light theme — remove the dark map filter so tiles render normally */
+        html[data-theme="light"] .leaflet-tile-pane { filter: none !important; }
+        html[data-theme="light"] .leaflet-container { background: #d9d6cf !important; }
+
+        /* Light theme — card shadows are softer */
+        html[data-theme="light"] .card {
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+
+        /* Theme toggle button */
+        .theme-toggle {
+            width: 100%;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 10px;
+            color: var(--subtle);
+            font-family: var(--font-mono);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all .15s;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .theme-toggle:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .theme-toggle svg { width: 13px; height: 13px; }
 
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -452,7 +519,7 @@
             /* Bottom nav visible for drivers — body padding so content isn't hidden */
             body.has-bottom-nav .bottom-nav { display: block; }
             body.has-bottom-nav .content { padding-bottom: 76px; }
-            body.has-bottom-nav .mobile-topbar .hamburger { display: none; }
+            body.has-bottom-nav .mobile-topbar .hamburger[aria-label="Menu"] { display: none; }
         }
     </style>
     @stack('styles')
@@ -462,11 +529,18 @@
 {{-- Mobile top bar (mobile only) --}}
 <header class="mobile-topbar">
     <div class="wordmark">FleetTrack</div>
-    <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-        </svg>
-    </button>
+    <div style="display:flex; gap:8px;">
+        <button class="hamburger" onclick="toggleTheme()" aria-label="Toggle theme">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+            </svg>
+        </button>
+        <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
+    </div>
 </header>
 
 {{-- Backdrop for mobile drawer --}}
@@ -527,6 +601,15 @@
                 <span style="color: var(--accent);">● LIVE</span>
             </div>
         </div>
+        <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn">
+            <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+            </svg>
+            <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;">
+                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <span id="theme-label">Light Mode</span>
+        </button>
         <form method="POST" action="{{ route('auth.logout') }}">
             @csrf
             <button type="submit" style="
@@ -581,6 +664,35 @@
     @csrf
 </form>
 @endif
+
+{{-- Theme toggle --}}
+<script>
+function applyThemeUI() {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const moon  = document.getElementById('theme-icon-moon');
+    const sun   = document.getElementById('theme-icon-sun');
+    const label = document.getElementById('theme-label');
+    if (moon && sun && label) {
+        moon.style.display = isLight ? 'none'  : 'block';
+        sun.style.display  = isLight ? 'block' : 'none';
+        label.textContent  = isLight ? 'Dark Mode' : 'Light Mode';
+    }
+}
+
+function toggleTheme() {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    if (isLight) {
+        document.documentElement.removeAttribute('data-theme');
+        localStorage.setItem('fleet-theme', 'dark');
+    } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+        localStorage.setItem('fleet-theme', 'light');
+    }
+    applyThemeUI();
+}
+
+applyThemeUI();
+</script>
 
 {{-- Sidebar drawer toggle --}}
 <script>
