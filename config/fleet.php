@@ -22,4 +22,9 @@ return [
 
     // Maximum active (pending/in_transit/delayed) shipments per vehicle
     'max_active_shipments' => env('FLEET_MAX_ACTIVE_SHIPMENTS', 10),
+
+    // Seconds of GPS silence before an offline ALERT is raised
+    // (separate from gps_stale_timeout_seconds which only affects the
+    //  dashboard online/offline pill — brief tunnel drops shouldn't alert)
+    'offline_alert_threshold_seconds' => env('GPS_OFFLINE_ALERT_SECONDS', 180),
 ];
