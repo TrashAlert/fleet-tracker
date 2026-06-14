@@ -334,7 +334,7 @@
             {{-- Map --}}
             <div class="map-card">
                 <div class="map-card-header">
-                    <span class="map-card-title">Live Location</span>
+                    <span class="map-card-title" id="map-title">Live Location</span>
                     <span class="live-dot" id="live-indicator">LIVE</span>
                 </div>
                 <div id="client-map"></div>
@@ -353,10 +353,16 @@ const TRACKING_CODE = '{{ $shipment->tracking_code }}';
 const DEST_LAT = {{ $shipment->destination_lat }};
 const DEST_LNG = {{ $shipment->destination_lng }};
 
+// Once delivered/cancelled the truck location is no longer shared.
+const LOCATION_HIDDEN = @json(in_array($shipment->status, ['delivered', 'cancelled']));
+const DELIVERED_AT    = @json($shipment->actual_delivery_at?->toIso8601String());
+
 const map = L.map('client-map').setView(
-    [{{ $shipment->vehicle->latestPosition?->latitude ?? $shipment->destination_lat }},
-     {{ $shipment->vehicle->latestPosition?->longitude ?? $shipment->destination_lng }}],
-    13
+    LOCATION_HIDDEN
+        ? [DEST_LAT, DEST_LNG]
+        : [{{ $shipment->vehicle->latestPosition?->latitude ?? $shipment->destination_lat }},
+           {{ $shipment->vehicle->latestPosition?->longitude ?? $shipment->destination_lng }}],
+    LOCATION_HIDDEN ? 14 : 13
 );
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
@@ -381,7 +387,7 @@ const vehicleIcon = L.divIcon({
     iconSize: [16, 16], iconAnchor: [8, 8],
 });
 
-@if($shipment->vehicle->latestPosition)
+@if($shipment->vehicle->latestPosition && !in_array($shipment->status, ['delivered', 'cancelled']))
 let vehicleMarker = L.marker(
     [{{ $shipment->vehicle->latestPosition->latitude }}, {{ $shipment->vehicle->latestPosition->longitude }}],
     { icon: vehicleIcon }
@@ -395,7 +401,9 @@ async function pollStatus() {
         const res  = await fetch(`/api/track/${TRACKING_CODE}/status`);
         const data = await res.json();
 
-        if (data.vehicle) {
+        if (data.location_hidden) {
+            applyDeliveredState(data);
+        } else if (data.vehicle) {
             const latlng = [data.vehicle.latitude, data.vehicle.longitude];
             if (vehicleMarker) {
                 vehicleMarker.setLatLng(latlng);
@@ -434,8 +442,43 @@ function timeAgo(iso) {
     return Math.floor(diff/3600) + 'h ago';
 }
 
-pollStatus();
-setInterval(pollStatus, 10000); // poll every 10s
+// When a delivery completes, drop the live truck marker and switch the card
+// out of "live" mode. The server already withholds the coordinates; this just
+// mirrors that in the UI and stops further polling.
+let deliveredHandled = false;
+function applyDeliveredState(data) {
+    if (vehicleMarker) { map.removeLayer(vehicleMarker); vehicleMarker = null; }
+
+    const liveDot = document.getElementById('live-indicator');
+    if (liveDot) liveDot.style.display = 'none';
+
+    const title = document.getElementById('map-title');
+    if (title) title.textContent = 'Delivery Location';
+
+    const speedEl = document.getElementById('live-speed');
+    if (speedEl) speedEl.textContent = '—';
+
+    const timeEl = document.getElementById('live-time');
+    if (timeEl) timeEl.textContent = (data && data.delivered_at)
+        ? ('Delivered ' + timeAgo(data.delivered_at))
+        : 'Tracking ended';
+
+    map.setView([DEST_LAT, DEST_LNG], 14);
+
+    if (!deliveredHandled) {
+        deliveredHandled = true;
+        if (pollTimer) clearInterval(pollTimer);
+    }
+}
+
+let pollTimer = null;
+if (LOCATION_HIDDEN) {
+    // Already delivered/cancelled on page load — never reveal the truck.
+    applyDeliveredState({ delivered_at: DELIVERED_AT });
+} else {
+    pollTimer = setInterval(pollStatus, 10000); // poll every 10s
+    pollStatus();
+}
 </script>
 @endif
 
