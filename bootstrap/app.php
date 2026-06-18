@@ -16,6 +16,12 @@ return Application::configure(basePath: dirname(__DIR__))
         'active' => \App\Http\Middleware\EnsureUserIsActive::class,
     ]);
         $middleware->redirectGuestsTo('/login');
+
+        // Behind Cloudflare Tunnel (cloudflared -> 127.0.0.1:8000): trust the
+        // forwarded proto/host headers so Laravel knows the request is HTTPS
+        // and generates https://fleettracker.com URLs (tracking links, assets).
+        // Safe to trust all here because only cloudflared can reach the origin.
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\ClientTrackingController;
 use App\Http\Controllers\FleetController;
 use App\Http\Controllers\OriginLocationController;
+use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -77,6 +78,7 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
 
     // ── Activity Log (admin + manager) ────────────────────────────────────
     Route::middleware('role:admin,manager')->group(function () {
+        Route::get('/performance',                  [PerformanceController::class, 'index'])->name('performance');
         Route::get('/activity-log',                 [ActivityLogController::class, 'index'])->name('activity-log');
         Route::get('/api/activity-log/latest',      [ActivityLogController::class, 'latest'])->name('api.activity-log.latest');
         Route::get('/api/activity-log/{type}/{id}', [ActivityLogController::class, 'forSubject'])->name('api.activity-log.subject');
