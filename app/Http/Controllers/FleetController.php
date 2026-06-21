@@ -294,8 +294,18 @@ class FleetController extends Controller
             ], 422);
         }
 
-        // Store the proof-of-delivery photo on the public disk (random filename).
-        $photoPath = $photo->store('delivery-proofs', 'public');
+        
+        // GD decodes the full-resolution photo into a raw bitmap before it can be
+        // scaled down — a high-megapixel phone photo can exceed PHP's 128M default.
+        ini_set('memory_limit', '512M');
+
+        // Downscale + re-encode the proof photo before storing (Intervention Image v4).
+        // Auto-orientation is on by default, so phone photos stay upright.
+        $manager   = \Intervention\Image\ImageManager::usingDriver(\Intervention\Image\Drivers\Gd\Driver::class);
+        $image     = $manager->decode($photo->getRealPath())->scaleDown(width: 1280, height: 1280);
+        $encoded   = $image->encodeUsingFormat(\Intervention\Image\Format::JPEG, quality: 75);
+        $photoPath = 'delivery-proofs/' . \Illuminate\Support\Str::uuid() . '.jpg';
+        \Illuminate\Support\Facades\Storage::disk('public')->put($photoPath, (string) $encoded);
 
         $shipment->update([
             'status'              => 'delivered',
