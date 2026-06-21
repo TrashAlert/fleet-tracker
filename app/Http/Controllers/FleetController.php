@@ -189,6 +189,7 @@ class FleetController extends Controller
             'destination_lng'      => $shipment->destination_lng,
             'expected_delivery_at' => $shipment->expected_delivery_at?->format('Y-m-d H:i'),
             'actual_delivery_at'   => $shipment->actual_delivery_at?->format('Y-m-d H:i'),
+            'delivery_photo'       => $shipment->delivery_photo_url,
             'created_at'           => $shipment->created_at->format('Y-m-d H:i'),
             'vehicle' => $shipment->vehicle ? [
                 'id'          => $shipment->vehicle->id,
@@ -263,6 +264,18 @@ class FleetController extends Controller
             return response()->json(['error' => 'Unauthorized.'], 403);
         }
 
+        // A package photo is required to confirm delivery.
+        $photo = $request->file('photo');
+        if (! $photo || ! $photo->isValid()) {
+            return response()->json(['error' => 'A package photo is required to confirm delivery.'], 422);
+        }
+        if (! str_starts_with((string) $photo->getMimeType(), 'image/')) {
+            return response()->json(['error' => 'The uploaded file must be an image.'], 422);
+        }
+        if ($photo->getSize() > 8 * 1024 * 1024) {
+            return response()->json(['error' => 'The photo is too large (max 8 MB).'], 422);
+        }
+
         // Shipment must be started first (one-at-a-time flow)
         if (! in_array($shipment->status, ['in_transit', 'delayed'])) {
             return response()->json(['error' => 'Start this delivery before confirming it.'], 422);
@@ -281,11 +294,15 @@ class FleetController extends Controller
             ], 422);
         }
 
+        // Store the proof-of-delivery photo on the public disk (random filename).
+        $photoPath = $photo->store('delivery-proofs', 'public');
+
         $shipment->update([
-            'status'             => 'delivered',
-            'actual_delivery_at' => now(),
-            'left_radius_at'     => null,
-            'delivery_flag_sent' => false,
+            'status'              => 'delivered',
+            'actual_delivery_at'  => now(),
+            'left_radius_at'      => null,
+            'delivery_flag_sent'  => false,
+            'delivery_photo_path' => $photoPath,
         ]);
 
         ActivityLogger::logEvent(

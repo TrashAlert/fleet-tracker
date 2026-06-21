@@ -125,35 +125,6 @@
                             <div style="font-size:9px; color:var(--subtle); margin-top:2px;">away</div>
                         </div>
                     </div>
-
-                    @if($s->destination_lat && $s->destination_lng)
-                    {{-- Navigate to destination in the driver's preferred app (opens app on mobile, web otherwise) --}}
-                    <div style="display:flex; gap:8px; margin-top:10px;">
-                        <a href="https://waze.com/ul?ll={{ $s->destination_lat }},{{ $s->destination_lng }}&navigate=yes"
-                           target="_blank" rel="noopener"
-                           style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
-                                  background:var(--muted); color:var(--text); text-decoration:none;
-                                  border:1px solid var(--border); border-radius:6px; padding:9px;
-                                  font-family:var(--font-mono); font-size:11px; transition:all .15s;"
-                           onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
-                           onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text)';">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
-                            Waze
-                        </a>
-                        <a href="https://www.google.com/maps/dir/?api=1&destination={{ $s->destination_lat }},{{ $s->destination_lng }}&travelmode=driving"
-                           target="_blank" rel="noopener"
-                           style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
-                                  background:var(--muted); color:var(--text); text-decoration:none;
-                                  border:1px solid var(--border); border-radius:6px; padding:9px;
-                                  font-family:var(--font-mono); font-size:11px; transition:all .15s;"
-                           onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
-                           onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text)';">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                            Google Maps
-                        </a>
-                    </div>
-                    @endif
-
                     @if($s->status === 'pending')
                     <button class="start-delivery-btn" onclick="startDelivery({{ $s->id }}, '{{ $s->tracking_code }}')"
                         style="margin-top:10px; width:100%; background:var(--muted); color:var(--text);
@@ -494,13 +465,16 @@ async function fetchDeliveryStatus() {
                                 </div>
                             </div>
                         </div>
-                        <button onclick="confirmDelivery(${s.shipment_id})"
-                            id="confirm-btn-${s.shipment_id}"
+                        <label id="confirm-btn-${s.shipment_id}"
                             style="background:var(--success); color:#000; border:none; border-radius:7px;
                                 padding:9px 18px; font-family:var(--font-display); font-weight:700;
-                                font-size:12px; cursor:pointer; white-space:nowrap; flex-shrink:0;">
-                            Confirm Delivery
-                        </button>
+                                font-size:12px; cursor:pointer; white-space:nowrap; flex-shrink:0;
+                                display:inline-flex; align-items:center; gap:7px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            Take Photo &amp; Confirm
+                            <input type="file" accept="image/*" capture="environment"
+                                onchange="confirmDelivery(${s.shipment_id}, this)" style="display:none;">
+                        </label>
                     </div>`;
             } else if (s.left_radius_at) {
                 // ── Left the zone — amber warning with countdown ──
@@ -612,30 +586,40 @@ function updateStartButtons() {
 updateStartButtons();
 
 // ── Confirm delivery (per shipment) ───────────────────────────────────────
-async function confirmDelivery(shipmentId) {
+async function confirmDelivery(shipmentId, input) {
     const banner = document.getElementById('banner-' + shipmentId);
-    const btn    = document.getElementById('confirm-btn-' + shipmentId);
-    if (!btn) return;
 
-    btn.textContent = 'Confirming...';
-    btn.disabled    = true;
-    if (banner) banner.dataset.confirming = '1';
+    // A package photo is required — the button is a camera input. Bail if none chosen.
+    const photo = input && input.files && input.files[0];
+    if (!photo) return;
+
+    if (banner) {
+        banner.dataset.confirming = '1';
+        banner.innerHTML = `
+            <div style="background:rgba(0,229,255,0.06); border:1px solid rgba(0,229,255,0.3);
+                border-radius:10px; padding:16px 20px; display:flex; align-items:center; gap:12px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                <div style="font-weight:700; font-size:13px; color:var(--accent);">Uploading photo &amp; confirming…</div>
+            </div>`;
+    }
 
     try {
+        const fd = new FormData();
+        fd.append('photo', photo);
+
         const res  = await fetch(`/fleet/api/shipments/${shipmentId}/confirm-delivery`, {
             method:  'POST',
             headers: {
-                'Content-Type': 'application/json',
                 'Accept':       'application/json',
                 'X-CSRF-TOKEN': CSRF,
             },
+            body: fd,
         });
         const json = await res.json();
 
         if (!res.ok) {
             alert(json.error || 'Confirmation failed. Please try again.');
-            btn.textContent = 'Confirm Delivery';
-            btn.disabled    = false;
+            // Clear the flag so the next status poll re-renders the confirm banner for a retry.
             if (banner) banner.dataset.confirming = '0';
             return;
         }
@@ -666,8 +650,7 @@ async function confirmDelivery(shipmentId) {
 
     } catch(e) {
         alert('Network error — please try again.');
-        btn.textContent = 'Confirm Delivery';
-        btn.disabled    = false;
+        // Clear the flag so the next poll re-renders the confirm banner for a retry.
         if (banner) banner.dataset.confirming = '0';
     }
 }

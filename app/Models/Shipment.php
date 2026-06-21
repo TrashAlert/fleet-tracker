@@ -38,6 +38,7 @@ class Shipment extends Model
         'near_destination_at',
         'left_radius_at',
         'delivery_flag_sent',
+        'delivery_photo_path',
     ];
 
     protected $casts = [
@@ -69,6 +70,19 @@ class Shipment extends Model
     public function alerts(): HasMany
     {
         return $this->hasMany(Alert::class);
+    }
+
+    /**
+     * Public-disk URL for the proof-of-delivery photo, or null if none.
+     * Returned as a root-relative path so it resolves against whatever host
+     * the admin is using (localhost / VPN) and is NOT exposed via the
+     * Cloudflare tunnel, which only allows /track. Requires `php artisan storage:link`.
+     */
+    public function getDeliveryPhotoUrlAttribute(): ?string
+    {
+        return $this->delivery_photo_path
+            ? '/storage/' . ltrim($this->delivery_photo_path, '/')
+            : null;
     }
 
     public function isDelayed(): bool

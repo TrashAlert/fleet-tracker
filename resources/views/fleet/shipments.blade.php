@@ -270,6 +270,16 @@
             </div>
         </div>
 
+        {{-- Proof of Delivery --}}
+        <div id="dProofSection" style="margin-bottom:18px; display:none;">
+            <div style="font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--subtle); margin-bottom:10px;">Proof of Delivery</div>
+            <a id="dProofLink" href="#" target="_blank" rel="noopener"
+                style="display:block; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg);">
+                <img id="dProofImg" src="" alt="Proof of delivery photo"
+                    style="display:block; width:100%; max-height:220px; object-fit:cover;">
+            </a>
+        </div>
+
         {{-- Recent Alerts --}}
         <div id="dAlertsSection" style="margin-bottom:18px; display:none;">
             <div style="font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--subtle); margin-bottom:10px;">Recent Alerts</div>
@@ -574,6 +584,16 @@ async function loadDrawer(id) {
     // Timing
     infoBlock('dExpected',  'Expected By', s.expected_delivery_at ?? '—');
     infoBlock('dDelivered', 'Delivered At', s.actual_delivery_at ?? '—');
+
+    // Proof of delivery photo (shown only if the driver captured one)
+    const proofSection = document.getElementById('dProofSection');
+    if (s.delivery_photo) {
+        document.getElementById('dProofImg').src   = s.delivery_photo;
+        document.getElementById('dProofLink').href = s.delivery_photo;
+        proofSection.style.display = '';
+    } else {
+        proofSection.style.display = 'none';
+    }
 
     // Vehicle
     const vDiv = document.getElementById('dVehicle');
