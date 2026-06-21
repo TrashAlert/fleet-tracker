@@ -313,6 +313,8 @@ class FleetController extends Controller
             ['causer_type' => 'web', 'causer_label' => $user->name]
         );
 
+        $shipment->notify(new \App\Notifications\DeliveryConfirmedNotification($shipment));
+
         return response()->json([
             'ok'                 => true,
             'tracking_code'      => $shipment->tracking_code,
