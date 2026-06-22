@@ -353,9 +353,21 @@ const TRACKING_CODE = '{{ $shipment->tracking_code }}';
 const DEST_LAT = {{ $shipment->destination_lat }};
 const DEST_LNG = {{ $shipment->destination_lng }};
 
-// Once delivered/cancelled the truck location is no longer shared.
-const LOCATION_HIDDEN = @json(in_array($shipment->status, ['delivered', 'cancelled']));
-const DELIVERED_AT    = @json($shipment->actual_delivery_at?->toIso8601String());
+@php
+    // Compute these in PHP so the @json directives below receive simple
+    // variables — Blade can choke on in_array(..., [...]) inside @json().
+    $locationHidden     = in_array($shipment->status, ['pending', 'delivered', 'cancelled']);
+    $isTerminal         = in_array($shipment->status, ['delivered', 'cancelled']);
+    $isPending          = $shipment->status === 'pending';
+    $deliveredAtIso     = $shipment->actual_delivery_at?->toIso8601String();
+    $showInitialVehicle = $shipment->vehicle->latestPosition && ! $locationHidden;
+@endphp
+// The truck location is shown only while moving (in_transit/delayed). It's
+// hidden before dispatch (pending) and after completion (delivered/cancelled).
+const LOCATION_HIDDEN = @json($locationHidden);
+const IS_TERMINAL     = @json($isTerminal);
+const IS_PENDING      = @json($isPending);
+const DELIVERED_AT    = @json($deliveredAtIso);
 
 const map = L.map('client-map').setView(
     LOCATION_HIDDEN
@@ -387,7 +399,7 @@ const vehicleIcon = L.divIcon({
     iconSize: [16, 16], iconAnchor: [8, 8],
 });
 
-@if($shipment->vehicle->latestPosition && !in_array($shipment->status, ['delivered', 'cancelled']))
+@if($showInitialVehicle)
 let vehicleMarker = L.marker(
     [{{ $shipment->vehicle->latestPosition->latitude }}, {{ $shipment->vehicle->latestPosition->longitude }}],
     { icon: vehicleIcon }
@@ -401,9 +413,16 @@ async function pollStatus() {
         const res  = await fetch(`/api/track/${TRACKING_CODE}/status`);
         const data = await res.json();
 
-        if (data.location_hidden) {
+        if (data.status === 'delivered' || data.status === 'cancelled') {
+            // Terminal — stop tracking and switch the card out of live mode.
             applyDeliveredState(data);
+        } else if (data.location_hidden) {
+            // Pending (not yet dispatched) — keep polling, but reveal no truck yet.
+            applyPendingState();
         } else if (data.vehicle) {
+            // Moving — ensure the card is in live mode (in case it was pending).
+            restoreLiveState();
+
             const latlng = [data.vehicle.latitude, data.vehicle.longitude];
             if (vehicleMarker) {
                 vehicleMarker.setLatLng(latlng);
@@ -472,10 +491,38 @@ function applyDeliveredState(data) {
 }
 
 let pollTimer = null;
-if (LOCATION_HIDDEN) {
-    // Already delivered/cancelled on page load — never reveal the truck.
+
+// Pending: the shipment exists but the driver hasn't started the trip, so no
+// truck location is exposed. Unlike the delivered state, polling keeps running
+// so the map comes alive the instant the driver dispatches.
+function applyPendingState() {
+    if (vehicleMarker) { map.removeLayer(vehicleMarker); vehicleMarker = null; }
+    const liveDot = document.getElementById('live-indicator');
+    if (liveDot) liveDot.style.display = 'none';
+    const title = document.getElementById('map-title');
+    if (title) title.textContent = 'Awaiting Dispatch';
+    const speedEl = document.getElementById('live-speed');
+    if (speedEl) speedEl.textContent = '—';
+    const timeEl = document.getElementById('live-time');
+    if (timeEl) timeEl.textContent = 'Not yet on the way';
+    map.setView([DEST_LAT, DEST_LNG], 14);
+}
+
+// Restore the live presentation when a shipment moves from pending to in transit.
+function restoreLiveState() {
+    const liveDot = document.getElementById('live-indicator');
+    if (liveDot) liveDot.style.display = '';
+    const title = document.getElementById('map-title');
+    if (title) title.textContent = 'Live Location';
+}
+
+if (IS_TERMINAL) {
+    // Already delivered/cancelled on page load — never reveal the truck, stop here.
     applyDeliveredState({ delivered_at: DELIVERED_AT });
 } else {
+    // Pending or moving — keep polling. Pending shows the awaiting-dispatch state
+    // and flips to live automatically once the driver starts.
+    if (IS_PENDING) applyPendingState();
     pollTimer = setInterval(pollStatus, 10000); // poll every 10s
     pollStatus();
 }

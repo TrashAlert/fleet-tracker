@@ -35,12 +35,12 @@ class ClientTrackingController extends Controller
             ->where('tracking_code', strtoupper($trackingCode))
             ->firstOrFail();
 
-        // Once a delivery is complete (or cancelled), stop exposing the truck's
-        // live location. The client no longer needs to follow the vehicle, and
-        // we shouldn't reveal where the driver travels next. Suppressed here at
-        // the source so the coordinates never reach the browser at all — not
-        // merely hidden in the UI.
-        $locationHidden = in_array($shipment->status, ['delivered', 'cancelled']);
+        // The truck's live location is shared only while the shipment is actually
+        // moving (in_transit / delayed). Before the driver starts the trip
+        // (pending) it stays hidden, and once the run is complete (delivered /
+        // cancelled) it's hidden again. Suppressed here at the source so the
+        // coordinates never reach the browser at all — not merely hidden in the UI.
+        $locationHidden = in_array($shipment->status, ['pending', 'delivered', 'cancelled']);
 
         $pos = $locationHidden ? null : $shipment->vehicle?->latestPosition;
 

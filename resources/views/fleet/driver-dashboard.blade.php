@@ -125,6 +125,35 @@
                             <div style="font-size:9px; color:var(--subtle); margin-top:2px;">away</div>
                         </div>
                     </div>
+
+                    @if($s->destination_lat && $s->destination_lng)
+                    {{-- Navigate to destination in the driver's preferred app (opens app on mobile, web otherwise) --}}
+                    <div style="display:flex; gap:8px; margin-top:10px;">
+                        <a href="https://waze.com/ul?ll={{ $s->destination_lat }},{{ $s->destination_lng }}&navigate=yes"
+                           target="_blank" rel="noopener"
+                           style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+                                  background:var(--muted); color:var(--text); text-decoration:none;
+                                  border:1px solid var(--border); border-radius:6px; padding:9px;
+                                  font-family:var(--font-mono); font-size:11px; transition:all .15s;"
+                           onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
+                           onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text)';">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+                            Waze
+                        </a>
+                        <a href="https://www.google.com/maps/dir/?api=1&destination={{ $s->destination_lat }},{{ $s->destination_lng }}&travelmode=driving"
+                           target="_blank" rel="noopener"
+                           style="flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+                                  background:var(--muted); color:var(--text); text-decoration:none;
+                                  border:1px solid var(--border); border-radius:6px; padding:9px;
+                                  font-family:var(--font-mono); font-size:11px; transition:all .15s;"
+                           onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)';"
+                           onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text)';">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                            Google Maps
+                        </a>
+                    </div>
+                    @endif
+
                     @if($s->status === 'pending')
                     <button class="start-delivery-btn" onclick="startDelivery({{ $s->id }}, '{{ $s->tracking_code }}')"
                         style="margin-top:10px; width:100%; background:var(--muted); color:var(--text);
