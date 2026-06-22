@@ -441,6 +441,8 @@ class FleetController extends Controller
             ['client_email' => $shipment->client_email, 'expected_at' => $shipment->expected_delivery_at]
         );
 
+        $shipment->notify(new \App\Notifications\ShipmentCreatedNotification($shipment));
+
         return response()->json([
             'tracking_code' => $shipment->tracking_code,
             'id'            => $shipment->id,

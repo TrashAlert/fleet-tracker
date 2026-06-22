@@ -210,7 +210,7 @@ const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 
 // ── Map setup ─────────────────────────────────────────────────────────────
 const map = L.map('fleet-map', { zoomControl: true, attributionControl: false })
-    .setView([3.140853, 101.686855], 10);
+    .setView([2.1896, 102.2501], 10);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 

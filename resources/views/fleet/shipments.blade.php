@@ -807,7 +807,7 @@ function initPickerMap() {
 
     pickerMap = L.map('createPickerMap', { zoomControl: true, attributionControl: false });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(pickerMap);
-    pickerMap.setView([3.1390, 101.6869], 11);
+    pickerMap.setView([2.1896, 102.2501], 10);
 
     pickerMap.on('click', function(e) {
         const { lat, lng } = e.latlng;
