@@ -27,4 +27,7 @@ return [
     // (separate from gps_stale_timeout_seconds which only affects the
     //  dashboard online/offline pill — brief tunnel drops shouldn't alert)
     'offline_alert_threshold_seconds' => env('GPS_OFFLINE_ALERT_SECONDS', 180),
+
+    // Where is OSRM located
+    'osrm_url' => env('OSRM_URL', 'http://localhost:5001'),
 ];

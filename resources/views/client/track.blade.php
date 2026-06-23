@@ -308,6 +308,10 @@
                             {{ $shipment->vehicle->latestPosition?->recorded_at?->diffForHumans() ?? 'No data' }}
                         </span>
                     </div>
+                    <div class="info-row" id="eta-row" style="display:none;">
+                        <span class="info-row-label">Estimated Arrival</span>
+                        <span class="info-row-value" id="eta-value" style="font-weight:600;">—</span>
+                    </div>
                     @if($shipment->vehicle->driver_name || $shipment->vehicle->driver_phone)
                     <div class="info-row">
                         <span class="info-row-label">Driver</span>
@@ -434,6 +438,16 @@ async function pollStatus() {
             document.getElementById('live-speed').textContent = (data.vehicle.speed_kmh?.toFixed(1) ?? 0) + ' km/h';
             document.getElementById('live-time').textContent  = timeAgo(data.vehicle.recorded_at);
 
+            // Road ETA from OSRM (computed server-side), shown only while moving.
+            const etaRow = document.getElementById('eta-row');
+            if (data.eta && etaRow) {
+                document.getElementById('eta-value').textContent =
+                    '~' + data.eta.eta_minutes + ' min · ' + data.eta.distance_km + ' km';
+                etaRow.style.display = '';
+            } else if (etaRow) {
+                etaRow.style.display = 'none';
+            }
+
             // Update driver info if elements exist
             const driverName  = document.getElementById('driver-name');
             const driverPhone = document.getElementById('driver-phone');
@@ -473,6 +487,8 @@ function applyDeliveredState(data) {
 
     const title = document.getElementById('map-title');
     if (title) title.textContent = 'Delivery Location';
+    const etaRow = document.getElementById('eta-row');
+    if (etaRow) etaRow.style.display = 'none';
 
     const speedEl = document.getElementById('live-speed');
     if (speedEl) speedEl.textContent = '—';
