@@ -349,29 +349,42 @@ class FleetController extends Controller
             return response()->json(['shipments' => []]);
         }
 
-        $pos = $vehicle->latestPosition;
+        $pos    = $vehicle->latestPosition;
+        $active = $vehicle->activeShipments->values();
 
-        $shipments = $vehicle->activeShipments->map(function ($s) use ($pos) {
-            $distance = $pos->distanceTo($s->destination_lat, $s->destination_lng);
+        // One OSRM Table request: road distance + drive time from the truck to every destination.
+        $destinations = $active->map(fn ($s) => [(float) $s->destination_lat, (float) $s->destination_lng])->all();
+        $routes = app(\App\Services\OsrmService::class)->table(
+            (float) $pos->latitude, (float) $pos->longitude, $destinations
+        );
+
+        $shipments = $active->map(function ($s, $i) use ($pos, $routes) {
+            $distance = $pos->distanceTo($s->destination_lat, $s->destination_lng); // straight-line — used by the 200m confirm radius
+            $route    = $routes[$i] ?? null;
+
             return [
-                'shipment_id'         => $s->id,
-                'tracking_code'       => $s->tracking_code,
-                'client_name'         => $s->client_name,
-                'destination_address' => $s->destination_address,
-                'expected_at'         => $s->expected_delivery_at?->format('d M Y, H:i'),
-                'status'              => $s->status,
-                'distance_metres'     => round($distance),
-                'near_destination'    => $distance <= 200,
-                'near_destination_at' => $s->near_destination_at?->toIso8601String(),
-                'left_radius_at'      => $s->left_radius_at?->toIso8601String(),
-                'delivery_flag_sent'  => $s->delivery_flag_sent,
+                'shipment_id'           => $s->id,
+                'tracking_code'         => $s->tracking_code,
+                'client_name'           => $s->client_name,
+                'destination_address'   => $s->destination_address,
+                'expected_at'           => $s->expected_delivery_at?->format('d M Y, H:i'),
+                'status'                => $s->status,
+                'distance_metres'       => round($distance),
+                'route_distance_metres' => ($route && $route['distance_m'] !== null) ? (int) round($route['distance_m']) : null,
+                'route_eta_minutes'     => ($route && $route['duration_s'] !== null) ? (int) round($route['duration_s'] / 60) : null,
+                'near_destination'      => $distance <= 200,
+                'near_destination_at'   => $s->near_destination_at?->toIso8601String(),
+                'left_radius_at'        => $s->left_radius_at?->toIso8601String(),
+                'delivery_flag_sent'    => $s->delivery_flag_sent,
             ];
-        })
-        // Sort nearest first
-        ->sortBy('distance_metres')
-        ->values();
+        });
 
-        return response()->json(['shipments' => $shipments]);
+        // Nearest first by road drive-time; fall back to straight-line if OSRM is unavailable.
+        $shipments = ($routes !== null)
+            ? $shipments->sortBy(fn ($s) => $s['route_eta_minutes'] ?? PHP_INT_MAX)
+            : $shipments->sortBy('distance_metres');
+
+        return response()->json(['shipments' => $shipments->values()]);
     }
 
     /**

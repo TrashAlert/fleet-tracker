@@ -122,7 +122,7 @@
                             <div class="delivery-distance mono" style="font-size:12px; font-weight:600;">
                                 {{ $distance !== null ? ($distance >= 1000 ? number_format($distance/1000, 1).' km' : $distance.' m') : '—' }}
                             </div>
-                            <div style="font-size:9px; color:var(--subtle); margin-top:2px;">away</div>
+                            <div class="delivery-distance-label" style="font-size:9px; color:var(--subtle); margin-top:2px;">away</div>
                         </div>
                     </div>
 
@@ -546,24 +546,38 @@ async function fetchDeliveryStatus() {
             }
         });
 
-        // ── Update deliveries list distances + sort nearest-first ──
+        // ── Update deliveries list: road distance + ETA, ordered by the server ──
         shipments.forEach(s => {
             const item = document.getElementById('delivery-' + s.shipment_id);
             if (!item) return;
-            item.dataset.distance = s.distance_metres;
-            const distEl = item.querySelector('.delivery-distance');
-            if (distEl) {
-                distEl.textContent = s.distance_metres >= 1000
+
+            const distEl  = item.querySelector('.delivery-distance');
+            const labelEl = item.querySelector('.delivery-distance-label');
+
+            if (s.route_distance_metres != null) {
+                // Road-based: distance by route + drive-time ETA.
+                if (distEl)  distEl.textContent  = (s.route_distance_metres / 1000).toFixed(1) + ' km';
+                if (labelEl) labelEl.textContent = (s.route_eta_minutes != null)
+                    ? ('~' + s.route_eta_minutes + ' min by road')
+                    : 'by road';
+                item.dataset.distance = s.route_distance_metres;
+            } else {
+                // OSRM unavailable — fall back to straight-line distance.
+                if (distEl)  distEl.textContent  = s.distance_metres >= 1000
                     ? (s.distance_metres / 1000).toFixed(1) + ' km'
                     : s.distance_metres + ' m';
+                if (labelEl) labelEl.textContent = 'away';
+                item.dataset.distance = s.distance_metres;
             }
         });
 
+        // The server returns shipments nearest-first by road; mirror that order.
         const list = document.getElementById('deliveries-list');
         if (list) {
-            const items = [...list.querySelectorAll('.delivery-item')];
-            items.sort((a, b) => Number(a.dataset.distance) - Number(b.dataset.distance));
-            items.forEach(i => list.appendChild(i));
+            shipments.forEach(s => {
+                const item = document.getElementById('delivery-' + s.shipment_id);
+                if (item) list.appendChild(item);
+            });
         }
 
         document.getElementById('deliveries-count').textContent = shipments.length + ' active';
