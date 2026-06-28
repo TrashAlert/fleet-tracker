@@ -430,7 +430,7 @@
                         </div>
                     </div>
                     <div style="font-size:10px; color:var(--subtle); margin-top:6px;">
-                        💡 Tip: You can get coordinates from Google Maps — right-click a location and copy the numbers.
+                        Tip: You can get coordinates from Google Maps — right-click a location and copy the numbers.
                     </div>
                 </div>
 

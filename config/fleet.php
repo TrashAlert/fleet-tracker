@@ -21,7 +21,7 @@ return [
     'mqtt_topic_prefix' => env('MQTT_TOPIC_PREFIX', 'fleet/'),
 
     // Maximum active (pending/in_transit/delayed) shipments per vehicle
-    'max_active_shipments' => env('FLEET_MAX_ACTIVE_SHIPMENTS', 10),
+    'max_active_shipments' => env('FLEET_MAX_ACTIVE_SHIPMENTS', 20),
 
     // Seconds of GPS silence before an offline ALERT is raised
     // (separate from gps_stale_timeout_seconds which only affects the

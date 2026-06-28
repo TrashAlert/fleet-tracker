@@ -412,6 +412,39 @@ let vehicleMarker = L.marker(
 let vehicleMarker = null;
 @endif
 
+// Road route line (truck → destination). The geometry is computed server-side
+// by OSRM and arrives in the status payload as [lat,lng] pairs, so the browser
+// never needs to reach the routing engine. Drawn only while the shipment moves;
+// cleared on pending/delivered/cancelled alongside the truck marker.
+let routeLine   = null;
+let routeFitted = false;
+
+function drawRoute(geometry) {
+    if (!geometry || geometry.length < 2) { clearRoute(); return; }
+    if (routeLine) {
+        // routeLine is a LayerGroup (casing + line); update both polylines.
+        routeLine.eachLayer(l => l.setLatLngs(geometry));
+    } else {
+        // White casing underneath a blue line for legibility over map tiles.
+        routeLine = L.layerGroup([
+            L.polyline(geometry, { color: '#ffffff', weight: 8, opacity: 0.9, lineJoin: 'round', lineCap: 'round' }),
+            L.polyline(geometry, { color: '#2563eb', weight: 4, opacity: 0.85, lineJoin: 'round', lineCap: 'round' }),
+        ]).addTo(map);
+    }
+    // Frame the whole journey once, the first time we have a route, then leave
+    // the view alone so the user can pan/zoom freely. The line spans the truck's
+    // current position to the destination, so it stays within these bounds as
+    // the truck approaches.
+    if (!routeFitted) {
+        map.fitBounds(L.latLngBounds(geometry), { padding: [40, 40] });
+        routeFitted = true;
+    }
+}
+
+function clearRoute() {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+}
+
 async function pollStatus() {
     try {
         const res  = await fetch(`/api/track/${TRACKING_CODE}/status`);
@@ -433,7 +466,16 @@ async function pollStatus() {
             } else {
                 vehicleMarker = L.marker(latlng, { icon: vehicleIcon }).addTo(map).bindPopup('Your shipment is here');
             }
-            map.panTo(latlng);
+
+            // Road route from the truck to the destination (OSRM geometry, server-side).
+            // When it's available we keep the whole route framed; if OSRM is down
+            // (no geometry) we fall back to gently following the truck.
+            if (data.eta && data.eta.geometry && data.eta.geometry.length > 1) {
+                drawRoute(data.eta.geometry);
+            } else {
+                clearRoute();
+                map.panTo(latlng);
+            }
 
             document.getElementById('live-speed').textContent = (data.vehicle.speed_kmh?.toFixed(1) ?? 0) + ' km/h';
             document.getElementById('live-time').textContent  = timeAgo(data.vehicle.recorded_at);
@@ -481,6 +523,7 @@ function timeAgo(iso) {
 let deliveredHandled = false;
 function applyDeliveredState(data) {
     if (vehicleMarker) { map.removeLayer(vehicleMarker); vehicleMarker = null; }
+    clearRoute();
 
     const liveDot = document.getElementById('live-indicator');
     if (liveDot) liveDot.style.display = 'none';
@@ -513,6 +556,8 @@ let pollTimer = null;
 // so the map comes alive the instant the driver dispatches.
 function applyPendingState() {
     if (vehicleMarker) { map.removeLayer(vehicleMarker); vehicleMarker = null; }
+    clearRoute();
+    routeFitted = false;
     const liveDot = document.getElementById('live-indicator');
     if (liveDot) liveDot.style.display = 'none';
     const title = document.getElementById('map-title');

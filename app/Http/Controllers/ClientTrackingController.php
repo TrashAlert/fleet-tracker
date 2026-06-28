@@ -75,10 +75,14 @@ class ClientTrackingController extends Controller
     }
 
     /**
-     * Road-distance ETA from the self-hosted OSRM routing engine.
-     * Returns ['eta_minutes' => int, 'distance_km' => float], or null if OSRM
-     * is unreachable or returns no route — the page then shows no ETA rather
-     * than breaking tracking. OSRM expects coordinates in lng,lat order.
+     * Road ETA + route geometry from the self-hosted OSRM routing engine.
+     * Returns ['eta_minutes' => int, 'distance_km' => float, 'geometry' => [[lat,lng], ...]],
+     * or null if OSRM is unreachable or returns no route — the page then shows
+     * neither an ETA nor a route line rather than breaking tracking.
+     *
+     * OSRM speaks lng,lat; the returned geometry is flipped to [lat, lng] here
+     * (Leaflet's order) and rounded to ~1 m so the browser can feed it straight
+     * into L.polyline without reaching OSRM itself (which lives on localhost).
      */
     private function routeEta(float $fromLat, float $fromLng, float $toLat, float $toLng): ?array
     {
@@ -91,7 +95,11 @@ class ClientTrackingController extends Controller
 
         try {
             $res = Http::timeout(3)->get("{$base}/route/v1/driving/{$coords}", [
-                'overview' => 'false',
+                // 'full' returns OSRM's complete road geometry (every OSM node),
+                // so curves and corners trace accurately. 'simplified' (the
+                // default) drops vertices and makes bends look faceted.
+                'overview'   => 'full',
+                'geometries' => 'geojson',
             ]);
 
             if (! $res->ok()) {
@@ -103,9 +111,18 @@ class ClientTrackingController extends Controller
                 return null;
             }
 
+            // GeoJSON coordinates are [lng, lat]; flip to [lat, lng] for Leaflet.
+            $geometry = [];
+            foreach ($route['geometry']['coordinates'] ?? [] as $point) {
+                if (isset($point[0], $point[1])) {
+                    $geometry[] = [round((float) $point[1], 5), round((float) $point[0], 5)];
+                }
+            }
+
             return [
                 'eta_minutes' => (int) round($route['duration'] / 60),
                 'distance_km' => round($route['distance'] / 1000, 1),
+                'geometry'    => $geometry,
             ];
         } catch (\Throwable $e) {
             return null;
