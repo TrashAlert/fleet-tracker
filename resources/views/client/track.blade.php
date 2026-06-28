@@ -427,8 +427,8 @@ function drawRoute(geometry) {
     } else {
         // White casing underneath a blue line for legibility over map tiles.
         routeLine = L.layerGroup([
-            L.polyline(geometry, { color: '#ffffff', weight: 8, opacity: 0.9, lineJoin: 'round', lineCap: 'round' }),
-            L.polyline(geometry, { color: '#2563eb', weight: 4, opacity: 0.85, lineJoin: 'round', lineCap: 'round' }),
+            L.polyline(geometry, { color: '#ffffff', weight: 8, opacity: 0.9, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.5 }),
+            L.polyline(geometry, { color: '#2563eb', weight: 4, opacity: 0.85, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.5 }),
         ]).addTo(map);
     }
     // Frame the whole journey once, the first time we have a route, then leave
