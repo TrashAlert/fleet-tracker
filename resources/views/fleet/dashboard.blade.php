@@ -3,94 +3,146 @@
 
 @section('content')
 
-{{-- ── Stat tiles ───────────────────────────────────────────────────────── --}}
-<div class="stats-grid">
-    <div class="stat-tile">
-        <div class="stat-label">
-            {{ auth()->user()->isDriver() ? 'My Vehicle' : 'Total Vehicles' }}
-        </div>
-        <div class="stat-value accent" id="stat-total">{{ $vehicles->count() }}</div>
-    </div>
-    <div class="stat-tile">
-        <div class="stat-label">Online Now</div>
-        <div class="stat-value success" id="stat-online">—</div>
-    </div>
-    <div class="stat-tile">
-        <div class="stat-label">Active Shipments</div>
-        <div class="stat-value" id="stat-shipments">
-            {{ $vehicles->filter(fn($v) => $v->activeShipment)->count() }}
-        </div>
-    </div>
-    <div class="stat-tile">
-        <div class="stat-label">Unread Alerts</div>
-        <div class="stat-value danger" id="stat-alerts">{{ $unreadAlerts->count() }}</div>
+{{-- ── Command bar: title + Live/History mode ──────────────────────────── --}}
+<div class="cmd-bar">
+    <span class="cmd-title">Fleet Command</span>
+    <div class="seg">
+        <button type="button" id="seg-live" class="seg-btn active" onclick="switchToLive()">Live</button>
+        <button type="button" id="seg-history" class="seg-btn" onclick="switchToHistory()">History</button>
     </div>
 </div>
 
-{{-- ── Map + Alerts ─────────────────────────────────────────────────────── --}}
-<div class="grid-3" style="margin-bottom:20px;">
+{{-- ── Stat chips (live mode) ──────────────────────────────────────────── --}}
+<div class="chip-row" id="chip-row">
+    <button type="button" class="chip" onclick="setOnlineFilter(false)" title="Show all vehicles">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="1" y="6" width="15" height="10" rx="1"/><path d="M16 10h3l3 3v3h-6"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        <span class="chip-val mono">{{ $vehicles->count() }}</span>
+        <span class="chip-label">vehicles</span>
+    </button>
+    <button type="button" class="chip" id="chip-online" onclick="toggleOnlineFilter()" title="Filter to online vehicles">
+        <span class="fdot fdot-on"></span>
+        <span class="chip-val mono" id="stat-online">—</span>
+        <span class="chip-label">online</span>
+    </button>
+    <a href="{{ route('fleet.shipments') }}" class="chip" title="Open shipments">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent2)" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        <span class="chip-val mono" id="stat-shipments">{{ $vehicles->sum(fn($v) => $v->activeShipments->count()) }}</span>
+        <span class="chip-label">active deliveries</span>
+    </a>
+    <button type="button" class="chip chip-danger" onclick="openAlertsPanel()" title="Show alerts">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="chip-val mono" id="stat-alerts">{{ $unreadAlerts->count() }}</span>
+        <span class="chip-label">alerts</span>
+    </button>
+    <span style="flex:1"></span>
+    <a href="{{ route('fleet.shipments') }}" class="chip chip-accent">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span class="chip-label" style="color:var(--accent); font-weight:600;">New shipment</span>
+    </a>
+</div>
 
-    {{-- Live Map + Trip History --}}
-    <div class="card" style="min-height:520px; display:flex; flex-direction:column;">
-        <div class="card-header" style="flex-wrap:wrap; gap:10px;">
-            <span class="card-title" id="map-title">Live Map</span>
-            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                {{-- Trip history controls --}}
-                <select id="history-vehicle" class="history-input">
-                    <option value="">Trip History...</option>
-                    @foreach($vehicles as $v)
-                        <option value="{{ $v->id }}">{{ $v->plate_number }}</option>
-                    @endforeach
-                </select>
-                <input type="date" id="history-date" class="history-input"
-                       value="{{ now()->format('Y-m-d') }}" max="{{ now()->format('Y-m-d') }}">
-                <button onclick="loadTripHistory()" class="btn btn-ghost" style="padding:5px 12px; font-size:11px;">
-                    View Route
-                </button>
-                <button onclick="exitHistoryMode()" id="exit-history-btn" class="btn btn-ghost"
-                        style="padding:5px 12px; font-size:11px; display:none; color:var(--accent); border-color:var(--accent);">
-                    Back to Live
-                </button>
-                <span style="font-size:10px; color:var(--accent);" id="map-updated">—</span>
-            </div>
+{{-- ── History toolbar (swaps in for the chips) ────────────────────────── --}}
+<div class="chip-row" id="history-toolbar" style="display:none;">
+    <select id="history-vehicle" class="history-input">
+        <option value="">Select vehicle…</option>
+        @foreach($vehicles as $v)
+            <option value="{{ $v->id }}">{{ $v->plate_number }} — {{ $v->name }}</option>
+        @endforeach
+    </select>
+    <input type="date" id="history-date" class="history-input"
+           value="{{ now()->format('Y-m-d') }}" max="{{ now()->format('Y-m-d') }}">
+    <button type="button" onclick="loadTripHistory()" class="chip chip-accent" style="cursor:pointer;">
+        <span class="chip-label" style="color:var(--accent); font-weight:600;">Load trip</span>
+    </button>
+    <span style="flex:1"></span>
+    <button type="button" onclick="switchToLive()" class="chip" style="cursor:pointer;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span class="chip-label">Exit history</span>
+    </button>
+</div>
+
+{{-- ── Map canvas with floating panels ─────────────────────────────────── --}}
+<div class="map-canvas">
+
+    {{-- Fleet panel (floating left) --}}
+    <div class="float-panel fleet-panel" id="fleet-panel">
+        <div class="fp-head">
+            <span class="fp-title">Fleet</span>
+            <span class="mono fp-sub" id="fleet-online-label">—</span>
         </div>
-
-        {{-- History summary strip (hidden until route loaded) --}}
-        <div id="history-summary" style="display:none; padding:10px 18px; border-bottom:1px solid var(--border); background:rgba(0,229,255,0.03);">
-            <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:11px;">
-                <div><span style="color:var(--subtle);">Points:</span> <span class="mono" id="hs-points">—</span></div>
-                <div><span style="color:var(--subtle);">Distance:</span> <span class="mono" id="hs-distance">—</span></div>
-                <div><span style="color:var(--subtle);">Duration:</span> <span class="mono" id="hs-duration">—</span></div>
-                <div><span style="color:var(--subtle);">Avg Speed:</span> <span class="mono" id="hs-avg-speed">—</span></div>
-                <div><span style="color:var(--subtle);">Max Speed:</span> <span class="mono" id="hs-max-speed">—</span></div>
-            </div>
-        </div>
-
-        <div style="flex:1; position:relative;">
-            <div id="fleet-map" style="position:absolute; inset:0; height:100%;"></div>
-
-            {{-- Speed legend (history mode only) --}}
-            <div id="speed-legend" style="display:none; position:absolute; bottom:14px; left:14px; z-index:500;
-                background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:10px 14px;">
-                <div style="font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--subtle); margin-bottom:6px;">Speed</div>
-                <div style="display:flex; align-items:center; gap:6px; font-size:10px;">
-                    <span style="width:24px; height:4px; background:#22c55e; border-radius:2px;"></span> &lt;60
-                    <span style="width:24px; height:4px; background:#f59e0b; border-radius:2px; margin-left:8px;"></span> 60–110
-                    <span style="width:24px; height:4px; background:#ef4444; border-radius:2px; margin-left:8px;"></span> &gt;110 km/h
+        <div class="fleet-rows">
+            @forelse($vehicles as $v)
+            <div class="frow" id="frow-{{ $v->id }}" onclick="focusVehicle({{ $v->id }})">
+                <div class="frow-line">
+                    <span class="fdot {{ $v->isOffline() ? 'fdot-off' : 'fdot-on' }}" id="dot-{{ $v->id }}"></span>
+                    <span class="frow-name">{{ $v->name }}</span>
+                    <span class="mono frow-speed" id="speed-{{ $v->id }}">
+                        {{ $v->latestPosition ? number_format($v->latestPosition->speed_kmh, 1).' km/h' : '—' }}
+                    </span>
+                </div>
+                <div class="frow-line frow-meta">
+                    <span class="mono">{{ $v->plate_number }}</span>
+                    <span style="flex:1"></span>
+                    <span class="frow-driver">{{ $v->driver_name ?? '—' }}</span>
+                </div>
+                <div class="frow-line frow-meta">
+                    <span id="state-{{ $v->id }}" class="{{ $v->isOffline() ? 'frow-state-off' : 'frow-state-on' }}">{{ $v->isOffline() ? 'offline' : 'online' }}</span>
+                    <span>&middot;</span>
+                    <span id="seen-{{ $v->id }}">{{ $v->latestPosition ? $v->latestPosition->recorded_at->diffForHumans() : 'never' }}</span>
+                    <span style="flex:1"></span>
+                    @if($v->activeShipments->count() === 1)
+                        <span class="mono" style="color:var(--accent2);">{{ $v->activeShipments->first()->tracking_code }}</span>
+                    @elseif($v->activeShipments->count() > 1)
+                        <span style="color:var(--accent2);">{{ $v->activeShipments->count() }} deliveries</span>
+                    @endif
                 </div>
             </div>
+            @empty
+            <div style="padding:24px 12px; text-align:center; color:var(--subtle); font-size:12px;">No active vehicles</div>
+            @endforelse
+        </div>
+        <a href="{{ route('fleet.vehicles') }}" class="fp-foot">
+            All vehicles
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+    </div>
+
+    {{-- Map --}}
+    <div class="map-wrap">
+        <div id="fleet-map"></div>
+
+        {{-- Live status pill --}}
+        <div class="live-pill" id="live-pill">
+            <span class="fdot fdot-on"></span>
+            <span style="color:var(--subtle);">Live</span>
+            <span class="mono" style="color:var(--subtle);" id="live-pill-time">—</span>
+        </div>
+
+        {{-- History summary strip (docked, hidden until a trip loads) --}}
+        <div id="history-summary" class="hist-summary" style="display:none;">
+            <span class="hs-item mono" id="hs-replay" style="color:var(--accent2);"></span>
+            <span class="hs-item">Points <span class="mono" id="hs-points">—</span></span>
+            <span class="hs-item">Distance <span class="mono" id="hs-distance">—</span></span>
+            <span class="hs-item">Duration <span class="mono" id="hs-duration">—</span></span>
+            <span class="hs-item">Avg <span class="mono" id="hs-avg-speed">—</span></span>
+            <span class="hs-item">Max <span class="mono" id="hs-max-speed" style="color:var(--danger);">—</span></span>
+            <span style="flex:1"></span>
+            <span class="hs-leg"><span class="hs-swatch" style="background:#22c55e;"></span>&lt;60</span>
+            <span class="hs-leg"><span class="hs-swatch" style="background:#f59e0b;"></span>60–110</span>
+            <span class="hs-leg"><span class="hs-swatch" style="background:#ef4444;"></span>&gt;110 km/h</span>
         </div>
     </div>
 
-    {{-- Alerts panel --}}
-    <div class="card">
-        <div class="card-header">
-            <span class="card-title">Alerts</span>
-            <span style="font-size:10px; color:var(--subtle);" id="alert-count-label">
-                {{ $unreadAlerts->count() }} unread
-            </span>
+    {{-- Alerts panel (floating right) --}}
+    <div class="float-panel alerts-panel" id="alerts-panel-wrap">
+        <div class="fp-head">
+            <span class="fp-title">Alerts</span>
+            <span class="mono fp-sub" style="color:var(--danger);" id="alert-count-label">{{ $unreadAlerts->count() }} unread</span>
+            <button type="button" class="fp-collapse" onclick="closeAlertsPanel()" title="Collapse alerts">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
         </div>
-        <div id="alerts-panel" style="padding:0 18px; max-height:520px; overflow-y:auto;">
+        <div id="alerts-panel" class="alerts-scroll">
             @forelse($unreadAlerts as $alert)
             <div class="alert-item" id="alert-{{ $alert->id }}">
                 <div class="alert-icon {{ $alert->type }}">
@@ -119,88 +171,184 @@
         </div>
     </div>
 
-</div>
+    {{-- Collapsed alerts badge (shown when panel is closed) --}}
+    <button type="button" class="alerts-fab" id="alerts-fab" style="display:none;" onclick="openAlertsPanel()" title="Show alerts">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span class="mono" id="alerts-fab-count">0</span>
+    </button>
 
-{{-- ── Fleet status table ───────────────────────────────────────────────── --}}
-<div class="card">
-    <div class="card-header">
-        <span class="card-title">Fleet Status</span>
-        @if(!auth()->user()->isDriver())
-        <a href="{{ route('fleet.vehicles') }}" class="btn btn-ghost" style="padding:5px 10px; font-size:11px;">
-            Manage →
-        </a>
-        @endif
-    </div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Vehicle</th>
-                <th>Plate</th>
-                <th>Driver</th>
-                <th>Speed</th>
-                <th>Status</th>
-                <th>Last Seen</th>
-                <th>Shipment</th>
-            </tr>
-        </thead>
-        <tbody id="fleet-tbody">
-            @foreach($vehicles as $v)
-            <tr id="row-{{ $v->id }}">
-                <td class="text-accent">{{ $v->name }}</td>
-                <td class="mono">{{ $v->plate_number }}</td>
-                <td>{{ $v->driver_name ?? '—' }}</td>
-                <td class="mono" id="speed-{{ $v->id }}">
-                    {{ $v->latestPosition ? number_format($v->latestPosition->speed_kmh, 1).' km/h' : '—' }}
-                </td>
-                <td id="status-{{ $v->id }}">
-                    <span class="pill {{ $v->isOffline() ? 'pill-offline' : 'pill-online' }}">
-                        {{ $v->isOffline() ? 'offline' : 'online' }}
-                    </span>
-                </td>
-                <td class="text-subtle" id="seen-{{ $v->id }}">
-                    {{ $v->latestPosition ? $v->latestPosition->recorded_at->diffForHumans() : 'never' }}
-                </td>
-                <td id="ship-{{ $v->id }}">
-                    @if($v->activeShipment)
-                        <span class="pill pill-transit">{{ $v->activeShipment->tracking_code }}</span>
-                    @else
-                        <span class="text-subtle">—</span>
-                    @endif
-                </td>
-            </tr>
-            @endforeach
-        </tbody>
-    </table>
 </div>
 
 @endsection
 
 @push('styles')
 <style>
-/* Match dashboard dark map style */
+/* ── Map theme (dark filter removed automatically in light mode) ── */
 .leaflet-tile-pane    { filter: brightness(0.65) saturate(0.7) hue-rotate(185deg); }
 .leaflet-container    { background: #0a0b0e; }
-.vehicle-popup        { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.vehicle-popup strong { color: #00e5ff; }
+html[data-theme="light"] .leaflet-tile-pane { filter: none; }
+html[data-theme="light"] .leaflet-container { background: #dce3e8; }
+.vehicle-popup        { font-family: var(--font-mono); font-size: 12px; }
+.vehicle-popup strong { color: var(--accent); }
+
+/* ── Command bar ── */
+.cmd-bar {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 12px; flex-wrap: wrap;
+}
+.cmd-title {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 14px; letter-spacing: 0.05em;
+}
+
+.seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg-btn {
+    background: none; border: none; cursor: pointer;
+    padding: 6px 16px; font-size: 11px; font-family: var(--font-display);
+    color: var(--subtle);
+}
+.seg-btn.active { background: rgba(0,229,255,0.12); color: var(--accent); font-weight: 600; }
+#seg-history.active { background: rgba(255,107,53,0.14); color: var(--accent2); }
+html[data-theme="light"] .seg-btn.active { background: rgba(0,119,182,0.10); }
+html[data-theme="light"] #seg-history.active { background: rgba(232,93,47,0.12); }
+
+/* ── Stat chips / toolbar row ── */
+.chip-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+.chip {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); padding: 8px 12px;
+    font-family: var(--font-display); text-decoration: none; color: var(--text);
+    cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.chip-val   { font-size: 15px; font-weight: 500; }
+.chip-label { font-size: 11px; color: var(--subtle); }
+.chip-danger { border-color: rgba(239,68,68,0.45); background: rgba(239,68,68,0.08); }
+.chip-danger .chip-val, .chip-danger .chip-label { color: var(--danger); }
+.chip-accent { border-color: rgba(0,229,255,0.4); background: none; }
+html[data-theme="light"] .chip-accent { border-color: rgba(0,119,182,0.4); }
+.chip-accent svg { stroke: var(--accent); }
+.chip.chip-on { border-color: var(--success); background: rgba(34,197,94,0.08); }
 
 .history-input {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 5px 9px;
-    outline: none;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text);
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 8px 10px; outline: none;
 }
 .history-input:focus { border-color: var(--accent); }
 .history-input option { background: var(--surface); }
 
-/* Alert icon SVG colours */
+/* ── Map canvas + floating panels ── */
+.map-canvas {
+    position: relative;
+    z-index: 0; /* stacking context: traps Leaflet's z-1000 controls + the z-700
+                   overlays below the layout's drawer (400), backdrop (399) and
+                   sticky mobile topbar (300) */
+    height: calc(100vh - 235px);
+    min-height: 460px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.map-wrap { position: absolute; inset: 0; }
+#fleet-map { position: absolute; inset: 0; height: 100%; }
+
+.float-panel {
+    position: absolute; z-index: 700;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.fleet-panel  { left: 12px; top: 12px; bottom: 12px; width: 236px; }
+.alerts-panel { right: 12px; top: 12px; width: 230px; max-height: calc(100% - 24px); }
+
+.fp-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px 8px; flex-shrink: 0;
+}
+.fp-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--subtle); flex: 1;
+}
+.fp-sub { font-size: 10px; color: var(--subtle); }
+.fp-collapse {
+    background: none; border: none; cursor: pointer;
+    color: var(--subtle); padding: 0 0 0 4px; display: flex; align-items: center;
+}
+.fp-collapse:hover { color: var(--text); }
+.fp-foot {
+    padding: 9px 12px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--accent); text-decoration: none;
+    display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+}
+
+.fleet-rows { flex: 1; overflow-y: auto; }
+.frow { padding: 8px 12px; border-top: 1px solid var(--border); cursor: pointer; }
+.frow:hover  { background: rgba(0,229,255,0.04); }
+.frow-active { background: rgba(0,229,255,0.07); border-left: 2px solid var(--accent); padding-left: 10px; }
+html[data-theme="light"] .frow:hover  { background: rgba(0,119,182,0.05); }
+html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
+.frow-dim { opacity: 0.35; }
+.frow-line { display: flex; align-items: center; gap: 6px; }
+.frow-name { font-size: 12px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow-speed { font-size: 11px; color: var(--accent); flex-shrink: 0; }
+.frow-meta { margin-top: 3px; padding-left: 12px; font-size: 10px; color: var(--subtle); }
+.frow-driver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.frow-state-on  { color: var(--success); }
+.frow-state-off { color: var(--danger); }
+
+.fdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.fdot-on  { background: var(--success); }
+.fdot-off { background: var(--danger); }
+
+.alerts-scroll { overflow-y: auto; padding: 0 12px; }
+
+.alerts-fab {
+    position: absolute; right: 12px; top: 12px; z-index: 700;
+    display: flex; align-items: center; gap: 7px;
+    background: var(--surface); border: 1px solid rgba(239,68,68,0.45);
+    border-radius: 999px; padding: 8px 13px;
+    color: var(--danger); font-size: 12px; cursor: pointer;
+}
+
+.live-pill {
+    position: absolute; left: 260px; bottom: 12px; z-index: 700;
+    display: flex; align-items: center; gap: 7px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 12px; font-size: 11px;
+}
+
+.hist-summary {
+    position: absolute; left: 12px; right: 254px; bottom: 12px; z-index: 700;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 9px 14px;
+}
+.hs-item { font-size: 11px; color: var(--subtle); }
+.hs-item .mono { color: var(--text); }
+.hs-leg { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--subtle); }
+.hs-swatch { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* ── Alert icon colours (unchanged from previous dashboard) ── */
 .alert-icon.overspeed svg { stroke: var(--danger); }
 .alert-icon.delay     svg { stroke: var(--warning); }
 .alert-icon.offline   svg { stroke: var(--subtle); }
 .alert-icon.geofence  svg { stroke: var(--accent); }
+
+/* ── Mobile: panels leave the map and stack ── */
+@media (max-width: 900px) {
+    .map-canvas { height: auto; min-height: 0; border: none; border-radius: 0; overflow: visible; }
+    .map-wrap   { position: relative; inset: auto; height: 420px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .float-panel { position: static; margin-bottom: 12px; }
+    .fleet-panel { width: auto; }
+    .fleet-rows  { max-height: 230px; }
+    .alerts-panel { width: auto; max-height: 320px; margin-top: 12px; margin-bottom: 0; }
+    .alerts-fab  { display: none !important; }
+    .live-pill   { left: 12px; }
+    .hist-summary { right: 12px; }
+}
 </style>
 @endpush
 
@@ -209,8 +357,9 @@
 const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 
 // ── Map setup ─────────────────────────────────────────────────────────────
-const map = L.map('fleet-map', { zoomControl: true, attributionControl: false })
+const map = L.map('fleet-map', { zoomControl: false, attributionControl: false })
     .setView([2.1896, 102.2501], 10);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
@@ -228,11 +377,14 @@ function makeIcon(isOffline) {
     });
 }
 
-const markers = {};
+const markers  = {};
+const vehState = {};          // id -> is_offline (for the online filter)
+let onlineFilter = false;
+let focusedVehicle = null;
 
 // ── Live positions — poll every 5s ────────────────────────────────────────
 async function fetchLivePositions() {
-    if (historyMode) return;   // paused while viewing trip history
+    if (historyMode) return;
     try {
         const res  = await fetch('{{ route("fleet.api.live") }}', {
             headers: { 'Accept': 'application/json' }
@@ -241,9 +393,23 @@ async function fetchLivePositions() {
         let onlineCount = 0;
 
         data.forEach(v => {
-            if (!v.latitude || !v.longitude) return;
+            vehState[v.id] = !!v.is_offline;
             if (!v.is_offline) onlineCount++;
 
+            // Fleet panel row (updates even for vehicles with no GPS fix yet)
+            const speedEl = document.getElementById(`speed-${v.id}`);
+            const dotEl   = document.getElementById(`dot-${v.id}`);
+            const seenEl  = document.getElementById(`seen-${v.id}`);
+            const stateEl = document.getElementById(`state-${v.id}`);
+            if (speedEl) speedEl.textContent = v.latitude ? (v.speed_kmh ?? 0).toFixed(1) + ' km/h' : '—';
+            if (dotEl)   dotEl.className = 'fdot ' + (v.is_offline ? 'fdot-off' : 'fdot-on');
+            if (seenEl)  seenEl.textContent = v.recorded_at ? timeAgo(v.recorded_at) : 'never';
+            if (stateEl) {
+                stateEl.textContent = v.is_offline ? 'offline' : 'online';
+                stateEl.className   = v.is_offline ? 'frow-state-off' : 'frow-state-on';
+            }
+
+            if (!v.latitude || !v.longitude) return;
             const latlng = [v.latitude, v.longitude];
 
             if (markers[v.id]) {
@@ -265,18 +431,15 @@ async function fetchLivePositions() {
                         : '<span style="color:#22c55e">LIVE</span>'}
                 </div>
             `);
-
-            // Update table row live
-            const speedEl  = document.getElementById(`speed-${v.id}`);
-            const statusEl = document.getElementById(`status-${v.id}`);
-            const seenEl   = document.getElementById(`seen-${v.id}`);
-            if (speedEl)  speedEl.textContent = (v.speed_kmh ?? 0).toFixed(1) + ' km/h';
-            if (statusEl) statusEl.innerHTML  = `<span class="pill ${v.is_offline ? 'pill-offline' : 'pill-online'}">${v.is_offline ? 'offline' : 'online'}</span>`;
-            if (seenEl)   seenEl.textContent  = v.recorded_at ? timeAgo(v.recorded_at) : 'never';
         });
 
-        document.getElementById('stat-online').textContent   = onlineCount;
-        document.getElementById('map-updated').textContent   = 'Updated ' + new Date().toLocaleTimeString();
+        applyOnlineFilter();
+
+        const total = document.querySelectorAll('.frow').length;
+        document.getElementById('stat-online').textContent       = onlineCount;
+        document.getElementById('fleet-online-label').textContent = onlineCount + '/' + total + ' online';
+        document.getElementById('live-pill-time').textContent =
+            'updated ' + new Date().toLocaleTimeString();
 
     } catch(e) { console.error('Live fetch error:', e); }
 }
@@ -286,6 +449,51 @@ function timeAgo(isoString) {
     if (diff < 60)   return diff + 's ago';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     return Math.floor(diff / 3600) + 'h ago';
+}
+
+// ── Online filter (chip toggle) ───────────────────────────────────────────
+function applyOnlineFilter() {
+    Object.keys(markers).forEach(id => {
+        const hide = onlineFilter && vehState[id];
+        if (hide) {
+            if (map.hasLayer(markers[id])) map.removeLayer(markers[id]);
+        } else if (!historyMode) {
+            if (!map.hasLayer(markers[id])) markers[id].addTo(map);
+        }
+        const row = document.getElementById(`frow-${id}`);
+        if (row) row.classList.toggle('frow-dim', onlineFilter && vehState[id]);
+    });
+    document.getElementById('chip-online').classList.toggle('chip-on', onlineFilter);
+}
+
+function toggleOnlineFilter() { setOnlineFilter(!onlineFilter); }
+function setOnlineFilter(on)  { onlineFilter = on; applyOnlineFilter(); }
+
+// ── Fleet panel row → focus vehicle on map ────────────────────────────────
+function focusVehicle(id) {
+    if (historyMode) return;
+    document.querySelectorAll('.frow').forEach(r => r.classList.remove('frow-active'));
+    document.getElementById(`frow-${id}`)?.classList.add('frow-active');
+    focusedVehicle = id;
+
+    const m = markers[id];
+    if (m && map.hasLayer(m)) {
+        map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 15), { duration: 0.6 });
+        m.openPopup();
+    }
+}
+
+// ── Alerts panel open/collapse ────────────────────────────────────────────
+function openAlertsPanel() {
+    document.getElementById('alerts-panel-wrap').style.display = 'flex';
+    document.getElementById('alerts-fab').style.display = 'none';
+    if (window.innerWidth <= 900) {
+        document.getElementById('alerts-panel-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+function closeAlertsPanel() {
+    document.getElementById('alerts-panel-wrap').style.display = 'none';
+    document.getElementById('alerts-fab').style.display = 'flex';
 }
 
 // ── Alert dismiss (incremental — no full repaint) ─────────────────────────
@@ -303,8 +511,9 @@ async function dismissAlert(id) {
 
 function updateAlertCount() {
     const count = document.querySelectorAll('.alert-item').length;
-    document.getElementById('stat-alerts').textContent    = count;
-    document.getElementById('alert-count-label').textContent = count + ' unread';
+    document.getElementById('stat-alerts').textContent        = count;
+    document.getElementById('alert-count-label').textContent  = count + ' unread';
+    document.getElementById('alerts-fab-count').textContent   = count;
 
     if (count === 0) {
         const panel = document.getElementById('alerts-panel');
@@ -331,10 +540,7 @@ async function fetchNewAlerts() {
         const panel = document.getElementById('alerts-panel');
 
         data.forEach(alert => {
-            // Skip if already in DOM
             if (document.getElementById(`alert-${alert.id}`)) return;
-
-            // Remove empty state if present
             document.getElementById('no-alerts-msg')?.remove();
 
             const div = document.createElement('div');
@@ -359,15 +565,34 @@ async function fetchNewAlerts() {
     } catch(e) { console.error('Alert fetch error:', e); }
 }
 
+// ── Mode switching (segmented control) ────────────────────────────────────
+function setSeg(mode) {
+    document.getElementById('seg-live').classList.toggle('active', mode === 'live');
+    document.getElementById('seg-history').classList.toggle('active', mode === 'history');
+    document.getElementById('chip-row').style.display        = mode === 'live' ? 'flex' : 'none';
+    document.getElementById('history-toolbar').style.display = mode === 'live' ? 'none' : 'flex';
+}
+
+function switchToHistory() {
+    setSeg('history');
+    // History mode proper starts when a trip is loaded; until then the live
+    // map keeps ticking underneath so the switch is non-destructive.
+}
+
+function switchToLive() {
+    setSeg('live');
+    exitHistoryMode();
+}
+
 // ── Trip History ──────────────────────────────────────────────────────────
 let historyMode    = false;
-let historyLayers  = [];   // polyline segments + markers
+let historyLayers  = [];
 let livePollTimer  = null;
 
 function speedColor(kmh) {
-    if (kmh > 110) return '#ef4444';   // overspeed — red
-    if (kmh >= 60) return '#f59e0b';   // moderate — amber
-    return '#22c55e';                  // slow — green
+    if (kmh > 110) return '#ef4444';
+    if (kmh >= 60) return '#f59e0b';
+    return '#22c55e';
 }
 
 function clearHistoryLayers() {
@@ -393,11 +618,9 @@ async function loadTripHistory() {
             return;
         }
 
-        // Enter history mode — stop live updates, hide live markers
         enterHistoryMode();
         clearHistoryLayers();
 
-        // ── Draw speed-coloured polyline segments ──
         let totalDistance = 0;
         let maxSpeed      = 0;
         let speedSum      = 0;
@@ -416,7 +639,6 @@ async function loadTripHistory() {
             speedSum += (b.speed_kmh ?? 0);
         }
 
-        // ── Start + end markers ──
         const startP = points[0];
         const endP   = points[points.length - 1];
 
@@ -438,11 +660,9 @@ async function loadTripHistory() {
 
         historyLayers.push(startMarker, endMarker);
 
-        // ── Fit map to route ──
         const bounds = points.map(p => [p.latitude, p.longitude]);
         map.fitBounds(bounds, { padding: [40, 40] });
 
-        // ── Summary stats ──
         const durationMs  = new Date(endP.recorded_at) - new Date(startP.recorded_at);
         const durationMin = Math.round(durationMs / 60000);
         const avgSpeed    = points.length > 1 ? (speedSum / (points.length - 1)) : 0;
@@ -456,7 +676,11 @@ async function loadTripHistory() {
             : durationMin + ' min';
         document.getElementById('hs-avg-speed').textContent = avgSpeed.toFixed(1) + ' km/h';
         document.getElementById('hs-max-speed').textContent = maxSpeed.toFixed(1) + ' km/h';
-        document.getElementById('history-summary').style.display = 'block';
+        document.getElementById('history-summary').style.display = 'flex';
+
+        const vSel = document.getElementById('history-vehicle');
+        document.getElementById('hs-replay').textContent =
+            vSel.options[vSel.selectedIndex].text + ' \u00b7 ' + date;
 
     } catch(e) {
         console.error('Trip history error:', e);
@@ -468,37 +692,32 @@ function enterHistoryMode() {
     if (historyMode) return;
     historyMode = true;
 
-    // Stop live polling
     if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
 
-    // Hide live vehicle markers
     Object.values(markers).forEach(m => map.removeLayer(m));
 
-    // UI state
-    const vSel = document.getElementById('history-vehicle');
-    const vName = vSel.options[vSel.selectedIndex].text;
-    document.getElementById('map-title').textContent = 'Trip History — ' + vName;
-    document.getElementById('exit-history-btn').style.display = 'inline-flex';
-    document.getElementById('speed-legend').style.display = 'block';
-    document.getElementById('map-updated').textContent = '';
+    document.getElementById('fleet-panel').style.display = 'none';
+    document.getElementById('live-pill').style.display   = 'none';
 }
 
 function exitHistoryMode() {
+    // Idempotent: safe to call when already live (segmented control).
+    if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
+
+    const wasHistory = historyMode;
     historyMode = false;
 
-    clearHistoryLayers();
+    if (wasHistory) {
+        clearHistoryLayers();
+        Object.values(markers).forEach(m => m.addTo(map));
+        applyOnlineFilter();
 
-    // Restore live markers
-    Object.values(markers).forEach(m => m.addTo(map));
+        document.getElementById('fleet-panel').style.display = 'flex';
+        document.getElementById('live-pill').style.display   = 'flex';
+        document.getElementById('history-summary').style.display = 'none';
+        document.getElementById('history-vehicle').value = '';
+    }
 
-    // UI state
-    document.getElementById('map-title').textContent = 'Live Map';
-    document.getElementById('exit-history-btn').style.display = 'none';
-    document.getElementById('speed-legend').style.display = 'none';
-    document.getElementById('history-summary').style.display = 'none';
-    document.getElementById('history-vehicle').value = '';
-
-    // Resume live polling immediately
     fetchLivePositions();
     livePollTimer = setInterval(fetchLivePositions, 5000);
 }
