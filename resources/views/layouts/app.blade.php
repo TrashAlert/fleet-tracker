@@ -212,22 +212,17 @@
             gap: 16px;
         }
 
-        /* Alert badge */
-        .alert-badge {
-            position: relative;
-            cursor: pointer;
-            color: var(--subtle);
+        /* System health pill — age of the freshest GPS packet fleet-wide */
+        .sys-pill {
+            display: flex; align-items: center; gap: 7px;
+            border: 1px solid var(--border); border-radius: 999px;
+            padding: 5px 12px; font-family: var(--font-mono);
+            font-size: 10px; color: var(--subtle);
         }
-        .alert-badge .dot {
-            position: absolute;
-            top: -3px; right: -3px;
-            width: 8px; height: 8px;
-            background: var(--danger);
-            border-radius: 50%;
-            border: 2px solid var(--surface);
-            display: none;
-        }
-        .alert-badge.has-alerts .dot { display: block; }
+        .sys-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); flex-shrink: 0; }
+        .sys-pill.ok    .sys-dot { background: var(--success); }
+        .sys-pill.stale .sys-dot { background: #f59e0b; }
+        .sys-pill.down  .sys-dot { background: var(--danger); }
 
         .content { padding: 24px; flex: 1; }
 
@@ -582,6 +577,12 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
             Performance
         </a>
+        @if(\Illuminate\Support\Facades\Route::has('fleet.gps-accuracy'))
+        <a href="{{ route('fleet.gps-accuracy') }}" class="nav-item {{ request()->routeIs('fleet.gps-accuracy') ? 'active' : '' }}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.93 19.07a10 10 0 010-14.14"/><path d="M7.76 16.24a6 6 0 010-8.48"/><path d="M19.07 4.93a10 10 0 010 14.14"/><path d="M16.24 7.76a6 6 0 010 8.48"/><circle cx="12" cy="12" r="2"/></svg>
+            GPS Accuracy
+        </a>
+        @endif
         <a href="{{ route('fleet.activity-log') }}" class="nav-item {{ request()->routeIs('fleet.activity-log') ? 'active' : '' }}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             Activity Log
@@ -634,9 +635,9 @@
     <header class="topbar">
         <span class="topbar-title">@yield('title', 'Dashboard')</span>
         <div class="topbar-right">
-            <div class="alert-badge" id="alertBadge">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-                <span class="dot"></span>
+            <div class="sys-pill" id="sysPill" title="Age of the freshest GPS packet across the fleet — green means ESP32, broker, subscriber and database are all flowing">
+                <span class="sys-dot"></span>
+                <span id="sysText">checking&hellip;</span>
             </div>
         </div>
     </header>
@@ -711,6 +712,38 @@ document.querySelectorAll('.sidebar .nav-item').forEach(link => {
         document.getElementById('sidebar-backdrop').classList.remove('show');
     });
 });
+</script>
+
+{{-- System health pill — polls the fleet live API and shows the age of the
+     freshest GPS packet. Catches silent pipeline failures (dead subscriber,
+     stopped broker) that per-vehicle status cannot distinguish from parked
+     trucks. Desktop topbar only (the element doesn't exist on mobile). --}}
+<script>
+async function refreshSysPill() {
+    const pill = document.getElementById('sysPill');
+    if (!pill) return;
+    const text = document.getElementById('sysText');
+    try {
+        const res  = await fetch('{{ route("fleet.api.live") }}', { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        const times = data.map(v => v.recorded_at).filter(Boolean).map(t => new Date(t).getTime());
+        if (!times.length) { pill.className = 'sys-pill'; text.textContent = 'no telemetry yet'; return; }
+        const age = Math.floor((Date.now() - Math.max(...times)) / 1000);
+        const fmt = age < 60 ? age + 's' : age < 3600 ? Math.floor(age / 60) + 'm' : Math.floor(age / 3600) + 'h';
+        if (age <= {{ (int) config('fleet.gps_stale_timeout_seconds', 60) }}) {
+            pill.className = 'sys-pill ok';    text.textContent = 'data live \u00b7 ' + fmt;
+        } else if (age <= 300) {
+            pill.className = 'sys-pill stale'; text.textContent = 'data stale \u00b7 ' + fmt;
+        } else {
+            pill.className = 'sys-pill down';  text.textContent = 'no data \u00b7 ' + fmt;
+        }
+    } catch (e) {
+        pill.className = 'sys-pill down';
+        text.textContent = 'server unreachable';
+    }
+}
+refreshSysPill();
+setInterval(refreshSysPill, 15000);
 </script>
 
 {{-- Leaflet JS --}}
