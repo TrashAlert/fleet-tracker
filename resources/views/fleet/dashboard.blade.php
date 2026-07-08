@@ -29,8 +29,8 @@
         <span class="chip-val mono" id="stat-shipments">{{ $vehicles->sum(fn($v) => $v->activeShipments->count()) }}</span>
         <span class="chip-label">active deliveries</span>
     </a>
-    <button type="button" class="chip chip-danger" onclick="openAlertsPanel()" title="Show alerts">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+    <button type="button" id="chip-alerts" class="chip chip-alerts {{ $unreadAlerts->count() > 0 ? 'chip-danger' : '' }}" onclick="openAlertsPanel()" title="Show alerts">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         <span class="chip-val mono" id="stat-alerts">{{ $unreadAlerts->count() }}</span>
         <span class="chip-label">alerts</span>
     </button>
@@ -226,6 +226,8 @@ html[data-theme="light"] #seg-history.active { background: rgba(232,93,47,0.12);
 .chip-label { font-size: 11px; color: var(--subtle); }
 .chip-danger { border-color: rgba(239,68,68,0.45); background: rgba(239,68,68,0.08); }
 .chip-danger .chip-val, .chip-danger .chip-label { color: var(--danger); }
+.chip-alerts svg { stroke: var(--subtle); }
+.chip-alerts.chip-danger svg { stroke: var(--danger); }
 .chip-accent { border-color: rgba(0,229,255,0.4); background: none; }
 html[data-theme="light"] .chip-accent { border-color: rgba(0,119,182,0.4); }
 .chip-accent svg { stroke: var(--accent); }
@@ -514,6 +516,8 @@ function updateAlertCount() {
     document.getElementById('stat-alerts').textContent        = count;
     document.getElementById('alert-count-label').textContent  = count + ' unread';
     document.getElementById('alerts-fab-count').textContent   = count;
+    // Red glow only while there are unread alerts
+    document.getElementById('chip-alerts').classList.toggle('chip-danger', count > 0);
 
     if (count === 0) {
         const panel = document.getElementById('alerts-panel');

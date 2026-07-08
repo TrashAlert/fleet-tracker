@@ -3,9 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    {{-- SECURITY: the tracking code lives in the URL query string. Without
+         this, EVERY third-party request (OSM tiles, fonts, CDN) and every
+         outbound click leaks the code via the Referer header. --}}
+    <meta name="referrer" content="no-referrer">
+    {{-- SECURITY: tracking pages must never be indexed by search engines. --}}
+    <meta name="robots" content="noindex, nofollow">
+
     <title>Track Your Shipment — FleetTrack</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+    {{-- SECURITY: Subresource Integrity pins the exact Leaflet build — a
+         compromised CDN cannot execute arbitrary JS on this public page.
+         (Hashes are the official Leaflet 1.9.4 values from leafletjs.com.) --}}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
     <style>
         :root {
             --bg: #f4f3ef;
@@ -26,9 +40,11 @@
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
 
-        /* Header */
+        /* ── Header ── */
         .header {
             background: var(--accent);
             padding: 20px 40px;
@@ -45,7 +61,7 @@
         }
         .wordmark span { color: #fff; font-weight: 400; font-size: 13px; margin-left: 10px; }
 
-        /* Search bar */
+        /* ── Search ── */
         .search-wrap {
             background: var(--surface);
             border-bottom: 1px solid var(--border);
@@ -58,11 +74,7 @@
             color: var(--subtle);
             margin-bottom: 10px;
         }
-        .search-row {
-            display: flex;
-            gap: 10px;
-            max-width: 560px;
-        }
+        .search-row { display: flex; gap: 10px; max-width: 560px; }
         .search-input {
             flex: 1;
             border: 2px solid var(--border);
@@ -78,66 +90,127 @@
             transition: border-color 0.15s;
         }
         .search-input:focus { border-color: var(--accent); }
+        /* ── GlareHover (React Bits) — CSS-only port, applied directly to the
+              button. The React wrapper only computed CSS variables, so the
+              effect transfers verbatim: an angled cyan glare sweeps corner to
+              corner. Also fires on :active (touch) and :focus-visible (keys). ── */
         .search-btn {
+            --gh-angle: -45deg;
+            --gh-duration: 650ms;
+            --gh-size: 250%;
+            --gh-rgba: rgba(0, 229, 255, 0.35);   /* fleet cyan glare */
+            position: relative;
+            overflow: hidden;
             background: var(--accent);
             color: #fff;
             border: none;
-            padding: 11px 24px;
+            padding: 11px 22px;
             border-radius: 8px;
             font-family: 'JetBrains Mono', monospace;
             font-size: 13px;
             cursor: pointer;
-            transition: opacity 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
-        .search-btn:hover { opacity: 0.85; }
+        .search-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(
+                var(--gh-angle),
+                hsla(0, 0%, 0%, 0) 60%,
+                var(--gh-rgba) 70%,
+                hsla(0, 0%, 0%, 0),
+                hsla(0, 0%, 0%, 0) 100%
+            );
+            background-size: var(--gh-size) var(--gh-size), 100% 100%;
+            background-repeat: no-repeat;
+            background-position: -100% -100%, 0 0;
+            transition: background-position var(--gh-duration) ease;
+            pointer-events: none;
+        }
+        .search-btn:hover::before,
+        .search-btn:focus-visible::before,
+        .search-btn:active::before {
+            background-position: 100% 100%, 0 0;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .search-btn::before { transition: none; }
+        }
 
-        /* Main layout */
+        /* ── Layout ── */
         .container {
             max-width: 1100px;
+            width: 100%;
             margin: 0 auto;
-            padding: 32px 40px;
+            padding: 28px 40px;
+            flex: 1;
         }
 
-        /* Not found */
-        .not-found {
-            text-align: center;
-            padding: 80px 20px;
-            color: var(--subtle);
-        }
+        .not-found { text-align: center; padding: 80px 20px; color: var(--subtle); }
         .not-found .code { font-size: 48px; font-weight: 800; color: var(--border); font-family: 'Syne', sans-serif; }
 
-        /* Shipment card */
+        /* ── Status stepper ── */
+        .stepper {
+            display: flex;
+            align-items: flex-start;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px 24px 16px;
+            margin-bottom: 20px;
+        }
+        .step { flex: 1; text-align: center; position: relative; }
+        .step-dot {
+            width: 26px; height: 26px; border-radius: 50%;
+            background: var(--bg); border: 2px solid var(--border);
+            margin: 0 auto 8px; position: relative; z-index: 1;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .step-dot svg { width: 13px; height: 13px; stroke: var(--surface); display: none; }
+        .step-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--subtle); }
+        .step-sub   { font-size: 10px; color: var(--subtle); margin-top: 3px; min-height: 13px; }
+        /* connector line */
+        .step:not(:first-child)::before {
+            content: ''; position: absolute;
+            top: 12px; left: -50%; width: 100%; height: 2px;
+            background: var(--border);
+        }
+        .step.done .step-dot { background: var(--success); border-color: var(--success); }
+        .step.done .step-dot svg { display: block; }
+        .step.done:not(:first-child)::before { background: var(--success); }
+        .step.done .step-label { color: var(--success); font-weight: 500; }
+        .step.current .step-dot { border-color: var(--accent2); background: var(--accent2); animation: stepPulse 2s infinite; }
+        .step.current .step-label { color: var(--accent2); font-weight: 500; }
+        .step.warn .step-dot { background: var(--warning); border-color: var(--warning); }
+        .step.warn .step-label { color: var(--warning); font-weight: 500; }
+        .step.cancel .step-dot { background: var(--danger); border-color: var(--danger); }
+        .step.cancel .step-label { color: var(--danger); font-weight: 500; }
+        @keyframes stepPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,107,53,0.35); } 50% { box-shadow: 0 0 0 7px rgba(255,107,53,0); } }
+
+        /* ── Cards ── */
         .shipment-layout {
             display: grid;
             grid-template-columns: 340px 1fr;
             gap: 20px;
             align-items: start;
         }
-
-        .info-card {
+        .info-card, .map-card {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             overflow: hidden;
         }
-        .info-card-header {
-            background: var(--accent);
-            padding: 20px 22px;
-            color: #fff;
-        }
+        .info-card-header { background: var(--accent); padding: 20px 22px; color: #fff; }
         .tracking-code-label { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.6; }
         .tracking-code-value { font-size: 22px; font-weight: 700; margin-top: 4px; letter-spacing: 0.05em; color: #00e5ff; }
 
         .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 500;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 500;
+            letter-spacing: 0.05em; text-transform: uppercase;
             margin-top: 12px;
         }
         .status-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -147,53 +220,45 @@
         .status-pending   { background: #2a2a2a; color: #9ca3af; }
 
         .info-body { padding: 20px 22px; }
-        .info-row {
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border);
-        }
+        .info-row { display: flex; flex-direction: column; gap: 3px; padding: 12px 0; border-bottom: 1px solid var(--border); }
         .info-row:last-child { border-bottom: none; }
         .info-row-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--subtle); }
         .info-row-value { font-size: 13px; color: var(--text); line-height: 1.5; }
 
-        /* Map */
-        .map-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            overflow: hidden;
-        }
         .map-card-header {
             padding: 14px 18px;
             border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 12px;
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 12px; gap: 10px;
         }
         .map-card-title { font-family: 'Syne', sans-serif; font-weight: 700; }
+        /* z-index containment: nothing inside the map can paint above page chrome */
+        .map-wrap { position: relative; z-index: 0; }
         #client-map { height: 500px; }
 
-        /* Live badge */
-        .live-dot {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            font-size: 10px;
-            color: var(--success);
-        }
+        .live-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--success); }
         .live-dot::before {
-            content: '';
-            width: 7px; height: 7px;
-            background: var(--success);
-            border-radius: 50%;
+            content: ''; width: 7px; height: 7px;
+            background: var(--success); border-radius: 50%;
             animation: pulse 2s infinite;
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+        .conn-pill {
+            display: none; font-size: 10px; color: var(--warning);
+            border: 1px solid var(--warning); border-radius: 20px; padding: 3px 10px;
+        }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        .privacy-note {
+            margin-top: 12px;
+            font-size: 10px; color: var(--subtle);
+            display: flex; gap: 7px; align-items: flex-start; line-height: 1.5;
+        }
+        .privacy-note svg { flex-shrink: 0; margin-top: 1px; }
+
+        .footer {
+            text-align: center; padding: 18px;
+            font-size: 10px; color: var(--subtle);
+            border-top: 1px solid var(--border);
         }
 
         @media (max-width: 768px) {
@@ -202,6 +267,8 @@
             .header { padding: 16px 20px; }
             .shipment-layout { grid-template-columns: 1fr; }
             #client-map { height: 340px; }
+            .stepper { padding: 16px 10px 12px; }
+            .step-sub { display: none; }
         }
     </style>
 </head>
@@ -218,8 +285,14 @@
     <form method="GET" action="/track">
         <div class="search-row">
             <input class="search-input" name="code" placeholder="e.g. AB12CD34EF"
-                   value="{{ $code ?? '' }}" autocomplete="off" maxlength="10">
-            <button class="search-btn" type="submit">Track →</button>
+                   value="{{ $code ?? '' }}" autocomplete="off" maxlength="10"
+                   pattern="[A-Za-z0-9]{10}" inputmode="text" spellcheck="false"
+                   title="Tracking codes are 10 letters and numbers"
+                   aria-label="Tracking code">
+            <button class="search-btn" type="submit">
+                Track
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
         </div>
     </form>
 </div>
@@ -248,7 +321,37 @@
         </div>
 
     @else
-        {{-- Shipment found --}}
+        @php
+            $badgeClass = match($shipment->status) {
+                'in_transit' => 'status-transit',
+                'delayed'    => 'status-delayed',
+                'delivered'  => 'status-delivered',
+                'cancelled'  => 'status-pending',
+                default      => 'status-pending',
+            };
+        @endphp
+
+        {{-- ── Status stepper: the journey at a glance ── --}}
+        <div class="stepper" id="stepper">
+            <div class="step" id="step-created">
+                <div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                <div class="step-label">Order received</div>
+                <div class="step-sub">{{ $shipment->created_at->format('d M, H:i') }}</div>
+            </div>
+            <div class="step" id="step-transit">
+                <div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                <div class="step-label" id="step-transit-label">In transit</div>
+                <div class="step-sub" id="step-transit-sub"></div>
+            </div>
+            <div class="step" id="step-delivered">
+                <div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+                <div class="step-label" id="step-delivered-label">Delivered</div>
+                <div class="step-sub" id="step-delivered-sub">
+                    {{ $shipment->actual_delivery_at?->format('d M, H:i') ?? '' }}
+                </div>
+            </div>
+        </div>
+
         <div class="shipment-layout">
 
             {{-- Info panel --}}
@@ -257,15 +360,6 @@
                     <div class="tracking-code-label">Tracking Code</div>
                     <div class="tracking-code-value">{{ $shipment->tracking_code }}</div>
                     <div>
-                        @php
-                            $badgeClass = match($shipment->status) {
-                                'in_transit' => 'status-transit',
-                                'delayed'    => 'status-delayed',
-                                'delivered'  => 'status-delivered',
-                                'cancelled'  => 'status-pending',
-                                default      => 'status-pending',
-                            };
-                        @endphp
                         <span class="status-badge {{ $badgeClass }}" id="status-badge">
                             {{ str_replace('_', ' ', $shipment->status) }}
                         </span>
@@ -336,12 +430,22 @@
             </div>
 
             {{-- Map --}}
-            <div class="map-card">
-                <div class="map-card-header">
-                    <span class="map-card-title" id="map-title">Live Location</span>
-                    <span class="live-dot" id="live-indicator">LIVE</span>
+            <div>
+                <div class="map-card">
+                    <div class="map-card-header">
+                        <span class="map-card-title" id="map-title">Live Location</span>
+                        <span style="flex:1"></span>
+                        <span class="conn-pill" id="conn-pill">Reconnecting&hellip;</span>
+                        <span class="live-dot" id="live-indicator">LIVE</span>
+                    </div>
+                    <div class="map-wrap">
+                        <div id="client-map"></div>
+                    </div>
                 </div>
-                <div id="client-map"></div>
+                <div class="privacy-note">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                    <span>For privacy, the vehicle's live position is shown only while your shipment is on the way — not before dispatch or after delivery.</span>
+                </div>
             </div>
 
         </div>
@@ -349,11 +453,15 @@
 
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div class="footer">FleetTrack Shipment Tracker</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
 
 @if($shipment)
 <script>
-const TRACKING_CODE = '{{ $shipment->tracking_code }}';
+const TRACKING_CODE = @json($shipment->tracking_code);
 const DEST_LAT = {{ $shipment->destination_lat }};
 const DEST_LNG = {{ $shipment->destination_lng }};
 
@@ -371,6 +479,8 @@ const DEST_LNG = {{ $shipment->destination_lng }};
 const LOCATION_HIDDEN = @json($locationHidden);
 const IS_TERMINAL     = @json($isTerminal);
 const IS_PENDING      = @json($isPending);
+const IS_CANCELLED    = @json($shipment->status === 'cancelled');
+const INITIAL_STATUS  = @json($shipment->status);
 const DELIVERED_AT    = @json($deliveredAtIso);
 
 const map = L.map('client-map').setView(
@@ -445,10 +555,68 @@ function clearRoute() {
     if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
 }
 
+// ── Status stepper ────────────────────────────────────────────────────────
+function updateStepper(status) {
+    const created   = document.getElementById('step-created');
+    const transit   = document.getElementById('step-transit');
+    const delivered = document.getElementById('step-delivered');
+    if (!created) return;
+
+    created.className   = 'step done';
+    transit.className   = 'step';
+    delivered.className = 'step';
+    document.getElementById('step-transit-label').textContent   = 'In transit';
+    document.getElementById('step-delivered-label').textContent = 'Delivered';
+
+    if (status === 'in_transit') {
+        transit.className = 'step current';
+        document.getElementById('step-transit-sub').textContent = 'on the way';
+    } else if (status === 'delayed') {
+        transit.className = 'step current warn';
+        document.getElementById('step-transit-label').textContent = 'In transit (delayed)';
+        document.getElementById('step-transit-sub').textContent   = 'running late';
+    } else if (status === 'delivered') {
+        transit.className   = 'step done';
+        delivered.className = 'step done';
+        document.getElementById('step-transit-sub').textContent = '';
+    } else if (status === 'cancelled') {
+        delivered.className = 'step cancel';
+        document.getElementById('step-delivered-label').textContent = 'Cancelled';
+    } else {
+        // pending — nothing beyond "order received"
+        document.getElementById('step-transit-sub').textContent = 'awaiting dispatch';
+    }
+}
+
+// ── Connection / throttle resilience ─────────────────────────────────────
+// On repeated failures show "Reconnecting". On HTTP 429 (rate limited),
+// back off: skip the next few polls instead of hammering the server.
+let connFails   = 0;
+let backoffSkip = 0;
+
+function setConn(ok) {
+    connFails = ok ? 0 : connFails + 1;
+    const pill = document.getElementById('conn-pill');
+    if (pill) pill.style.display = connFails >= 2 ? 'inline-flex' : 'none';
+}
+
 async function pollStatus() {
+    if (backoffSkip > 0) { backoffSkip--; return; }
     try {
-        const res  = await fetch(`/api/track/${TRACKING_CODE}/status`);
+        const res = await fetch(`/api/track/${TRACKING_CODE}/status`, {
+            headers: { 'Accept': 'application/json' }
+        });
+
+        if (res.status === 429) {
+            // Rate limited — wait ~3 cycles before trying again.
+            backoffSkip = 3;
+            setConn(false);
+            return;
+        }
+        if (!res.ok) { setConn(false); return; }
+
         const data = await res.json();
+        setConn(true);
 
         if (data.status === 'delivered' || data.status === 'cancelled') {
             // Terminal — stop tracking and switch the card out of live mode.
@@ -484,7 +652,7 @@ async function pollStatus() {
             const etaRow = document.getElementById('eta-row');
             if (data.eta && etaRow) {
                 document.getElementById('eta-value').textContent =
-                    '~' + data.eta.eta_minutes + ' min · ' + data.eta.distance_km + ' km';
+                    '~' + data.eta.eta_minutes + ' min \u00b7 ' + data.eta.distance_km + ' km';
                 etaRow.style.display = '';
             } else if (etaRow) {
                 etaRow.style.display = 'none';
@@ -500,13 +668,15 @@ async function pollStatus() {
             }
         }
 
-        // Update status badge — use innerHTML to keep ::before dot
+        // Update status badge — className swap keeps the ::before dot
         const badge    = document.getElementById('status-badge');
         const classMap = { 'in_transit':'status-transit', 'delayed':'status-delayed', 'delivered':'status-delivered', 'pending':'status-pending', 'cancelled':'status-pending' };
         badge.className = 'status-badge ' + (classMap[data.status] ?? 'status-pending');
         badge.textContent = data.status.replace(/_/g, ' ');
 
-    } catch(e) { console.error(e); }
+        updateStepper(data.status);
+
+    } catch(e) { setConn(false); console.error(e); }
 }
 
 function timeAgo(iso) {
@@ -525,11 +695,15 @@ function applyDeliveredState(data) {
     if (vehicleMarker) { map.removeLayer(vehicleMarker); vehicleMarker = null; }
     clearRoute();
 
+    const cancelled = (data && data.status === 'cancelled') || IS_CANCELLED;
+
     const liveDot = document.getElementById('live-indicator');
     if (liveDot) liveDot.style.display = 'none';
+    const connPill = document.getElementById('conn-pill');
+    if (connPill) connPill.style.display = 'none';
 
     const title = document.getElementById('map-title');
-    if (title) title.textContent = 'Delivery Location';
+    if (title) title.textContent = cancelled ? 'Tracking Ended' : 'Delivery Location';
     const etaRow = document.getElementById('eta-row');
     if (etaRow) etaRow.style.display = 'none';
 
@@ -537,11 +711,12 @@ function applyDeliveredState(data) {
     if (speedEl) speedEl.textContent = '—';
 
     const timeEl = document.getElementById('live-time');
-    if (timeEl) timeEl.textContent = (data && data.delivered_at)
+    if (timeEl) timeEl.textContent = (!cancelled && data && data.delivered_at)
         ? ('Delivered ' + timeAgo(data.delivered_at))
         : 'Tracking ended';
 
     map.setView([DEST_LAT, DEST_LNG], 14);
+    updateStepper(cancelled ? 'cancelled' : 'delivered');
 
     if (!deliveredHandled) {
         deliveredHandled = true;
@@ -567,6 +742,7 @@ function applyPendingState() {
     const timeEl = document.getElementById('live-time');
     if (timeEl) timeEl.textContent = 'Not yet on the way';
     map.setView([DEST_LAT, DEST_LNG], 14);
+    updateStepper('pending');
 }
 
 // Restore the live presentation when a shipment moves from pending to in transit.
@@ -577,9 +753,11 @@ function restoreLiveState() {
     if (title) title.textContent = 'Live Location';
 }
 
+updateStepper(INITIAL_STATUS);
+
 if (IS_TERMINAL) {
     // Already delivered/cancelled on page load — never reveal the truck, stop here.
-    applyDeliveredState({ delivered_at: DELIVERED_AT });
+    applyDeliveredState({ delivered_at: DELIVERED_AT, status: INITIAL_STATUS });
 } else {
     // Pending or moving — keep polling. Pending shows the awaiting-dispatch state
     // and flips to live automatically once the driver starts.
