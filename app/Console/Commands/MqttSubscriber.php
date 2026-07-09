@@ -6,8 +6,9 @@ use App\Models\Alert;
 use App\Models\GpsTelemetry;
 use App\Models\Shipment;
 use App\Models\Vehicle;
-use App\Notifications\DeliveryDelayedNotification;
 use App\Services\ActivityLogger;
+use App\Services\ShipmentDelayService;
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use PhpMqtt\Client\Facades\MQTT;
@@ -26,7 +27,8 @@ use PhpMqtt\Client\Facades\MQTT;
  */
 class MqttSubscriber extends Command
 {
-    protected $signature   = 'mqtt:subscribe';
+    protected $signature = 'mqtt:subscribe';
+
     protected $description = 'Subscribe to MQTT broker and process incoming GPS telemetry';
 
     public function handle(): int
@@ -37,7 +39,7 @@ class MqttSubscriber extends Command
 
         $mqtt = MQTT::connection();
 
-        $mqtt->subscribe($topicPrefix . '+/telemetry', function (string $topic, string $payload) {
+        $mqtt->subscribe($topicPrefix.'+/telemetry', function (string $topic, string $payload) {
             $this->processTelemetry($topic, $payload);
         }, 1);
 
@@ -54,11 +56,12 @@ class MqttSubscriber extends Command
     {
         try {
             // Extract device client ID: fleet/{clientId}/telemetry
-            $parts    = explode('/', $topic);
+            $parts = explode('/', $topic);
             $clientId = $parts[1] ?? null;
 
             if (! $clientId) {
                 Log::warning("MQTT: could not parse client ID from topic: {$topic}");
+
                 return;
             }
 
@@ -72,6 +75,7 @@ class MqttSubscriber extends Command
                     ['topic' => $topic],
                     ['causer_type' => 'mqtt', 'causer_label' => $clientId]
                 );
+
                 return;
             }
 
@@ -85,17 +89,18 @@ class MqttSubscriber extends Command
                     ['raw_payload' => $payload],
                     ['causer_type' => 'mqtt', 'causer_label' => $clientId]
                 );
+
                 return;
             }
 
             $telemetry = GpsTelemetry::create([
-                'vehicle_id'  => $vehicle->id,
-                'latitude'    => $data['lat'],
-                'longitude'   => $data['lng'],
-                'speed_kmh'   => $data['speed']      ?? 0,
-                'heading'     => $data['heading']    ?? 0,
-                'satellites'  => $data['satellites'] ?? 0,
-                'hdop'        => $data['hdop']       ?? null,
+                'vehicle_id' => $vehicle->id,
+                'latitude' => $data['lat'],
+                'longitude' => $data['lng'],
+                'speed_kmh' => $data['speed'] ?? 0,
+                'heading' => $data['heading'] ?? 0,
+                'satellites' => $data['satellites'] ?? 0,
+                'hdop' => $data['hdop'] ?? null,
                 'recorded_at' => $this->resolveTimestamp($data['ts'] ?? null),
             ]);
 
@@ -107,10 +112,10 @@ class MqttSubscriber extends Command
                 "GPS telemetry received from {$vehicle->name} ({$vehicle->plate_number}): {$telemetry->latitude}, {$telemetry->longitude} @ {$telemetry->speed_kmh} km/h",
                 'Vehicle', $vehicle->id, $vehicle->plate_number,
                 [
-                    'lat'        => $telemetry->latitude,
-                    'lng'        => $telemetry->longitude,
-                    'speed_kmh'  => $telemetry->speed_kmh,
-                    'heading'    => $telemetry->heading,
+                    'lat' => $telemetry->latitude,
+                    'lng' => $telemetry->longitude,
+                    'speed_kmh' => $telemetry->speed_kmh,
+                    'heading' => $telemetry->heading,
                     'satellites' => $telemetry->satellites,
                 ],
                 ['causer_type' => 'mqtt', 'causer_label' => $clientId]
@@ -134,12 +139,12 @@ class MqttSubscriber extends Command
 
         if ($telemetry->speed_kmh > $threshold) {
             Alert::create([
-                'vehicle_id'   => $vehicle->id,
-                'type'         => 'overspeed',
-                'message'      => "{$vehicle->name} ({$vehicle->plate_number}) exceeded speed limit: {$telemetry->speed_kmh} km/h",
-                'meta'         => [
-                    'speed'     => $telemetry->speed_kmh,
-                    'latitude'  => $telemetry->latitude,
+                'vehicle_id' => $vehicle->id,
+                'type' => 'overspeed',
+                'message' => "{$vehicle->name} ({$vehicle->plate_number}) exceeded speed limit: {$telemetry->speed_kmh} km/h",
+                'meta' => [
+                    'speed' => $telemetry->speed_kmh,
+                    'latitude' => $telemetry->latitude,
                     'longitude' => $telemetry->longitude,
                 ],
                 'triggered_at' => now(),
@@ -160,7 +165,9 @@ class MqttSubscriber extends Command
     private function checkDeliveryStatus(Vehicle $vehicle, GpsTelemetry $telemetry): void
     {
         $shipments = $vehicle->activeShipments;
-        if ($shipments->isEmpty()) return;
+        if ($shipments->isEmpty()) {
+            return;
+        }
 
         foreach ($shipments as $shipment) {
             // Radius monitoring only applies to started shipments.
@@ -176,7 +183,7 @@ class MqttSubscriber extends Command
 
     private function checkShipmentRadius(Vehicle $vehicle, GpsTelemetry $telemetry, Shipment $shipment): void
     {
-        $distance     = $telemetry->distanceTo($shipment->destination_lat, $shipment->destination_lng);
+        $distance = $telemetry->distanceTo($shipment->destination_lat, $shipment->destination_lng);
         $withinRadius = $distance <= 200;
 
         // ── Vehicle is within destination radius ───────────────────────────
@@ -185,7 +192,7 @@ class MqttSubscriber extends Command
             if (! $shipment->near_destination_at) {
                 $shipment->update([
                     'near_destination_at' => now(),
-                    'left_radius_at'      => null,
+                    'left_radius_at' => null,
                 ]);
                 Log::info("Shipment {$shipment->tracking_code}: vehicle entered destination radius.");
                 ActivityLogger::logEvent(
@@ -227,11 +234,11 @@ class MqttSubscriber extends Command
                 $shipment->update(['delivery_flag_sent' => true]);
 
                 Alert::create([
-                    'vehicle_id'   => $vehicle->id,
-                    'shipment_id'  => $shipment->id,
-                    'type'         => 'geofence',
-                    'message'      => "Driver of {$vehicle->name} ({$vehicle->plate_number}) left the delivery zone for shipment {$shipment->tracking_code} without confirming delivery.",
-                    'meta'         => ['minutes_outside' => $minutesOutside, 'tracking_code' => $shipment->tracking_code],
+                    'vehicle_id' => $vehicle->id,
+                    'shipment_id' => $shipment->id,
+                    'type' => 'geofence',
+                    'message' => "Driver of {$vehicle->name} ({$vehicle->plate_number}) left the delivery zone for shipment {$shipment->tracking_code} without confirming delivery.",
+                    'meta' => ['minutes_outside' => $minutesOutside, 'tracking_code' => $shipment->tracking_code],
                     'triggered_at' => now(),
                 ]);
 
@@ -253,39 +260,12 @@ class MqttSubscriber extends Command
     /**
      * Delay detection — runs for every active shipment including pending
      * (client should be notified their delivery is late regardless of
-     * whether the driver has started it).
+     * whether the driver has started it). Delegates to ShipmentDelayService so
+     * the packet path and the scheduled fleet:check-delays sweep stay identical.
      */
     private function checkShipmentDelay(Vehicle $vehicle, Shipment $shipment): void
     {
-        if (! $shipment->isDelayed() || $shipment->delay_notified) return;
-
-        // Pending shipments keep their status so the driver can still "start"
-        // them normally — they only get the alert + client notification.
-        // Started shipments (in_transit) flip to delayed.
-        if ($shipment->status === 'in_transit') {
-            $shipment->update(['status' => 'delayed', 'delay_notified' => true]);
-        } else {
-            $shipment->update(['delay_notified' => true]);
-        }
-
-        Alert::create([
-            'vehicle_id'   => $vehicle->id,
-            'shipment_id'  => $shipment->id,
-            'type'         => 'delay',
-            'message'      => "Shipment {$shipment->tracking_code} is delayed for client {$shipment->client_name}.",
-            'meta'         => ['expected_at' => $shipment->expected_delivery_at],
-            'triggered_at' => now(),
-        ]);
-
-        $shipment->notify(new DeliveryDelayedNotification($shipment));
-        Log::info("Delay alert sent for shipment {$shipment->tracking_code}.");
-        ActivityLogger::logEvent(
-            'shipment_delayed',
-            "Shipment {$shipment->tracking_code} marked as delayed — client {$shipment->client_name} notified",
-            'Shipment', $shipment->id, $shipment->tracking_code,
-            ['expected_at' => $shipment->expected_delivery_at, 'client_email' => $shipment->client_email],
-            ['causer_type' => 'system']
-        );
+        app(ShipmentDelayService::class)->process($shipment);
     }
 
     /**
@@ -294,7 +274,7 @@ class MqttSubscriber extends Command
      * timestamps near 1970. Anything before 2020-01-01 is treated as invalid
      * and falls back to now().
      */
-    private function resolveTimestamp(mixed $ts): \Carbon\Carbon
+    private function resolveTimestamp(mixed $ts): Carbon
     {
         if (empty($ts)) {
             return now();
@@ -303,11 +283,13 @@ class MqttSubscriber extends Command
         // If ts is an ISO string (e.g. "2025-05-20T08:30:00Z") parse directly
         if (is_string($ts) && str_contains($ts, '-')) {
             try {
-                $parsed = \Carbon\Carbon::parse($ts);
+                $parsed = Carbon::parse($ts);
                 if ($parsed->year >= 2020) {
                     return $parsed;
                 }
-            } catch (\Throwable) {}
+            } catch (\Throwable) {
+            }
+
             return now();
         }
 
@@ -317,6 +299,6 @@ class MqttSubscriber extends Command
             return now();
         }
 
-        return \Carbon\Carbon::createFromTimestamp($unix);
+        return Carbon::createFromTimestamp($unix);
     }
 }
