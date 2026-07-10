@@ -259,6 +259,12 @@
             </div>
         </div>
 
+        {{-- Delivery instructions (only shown when present) --}}
+        <div style="margin-bottom:18px; display:none;" id="dNotesWrap">
+            <div class="sh-section-label">Delivery Instructions</div>
+            <div id="dNotes" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12px; white-space:pre-wrap;"></div>
+        </div>
+
         {{-- Vehicle --}}
         <div style="margin-bottom:18px;">
             <div class="sh-section-label">Vehicle</div>
@@ -396,9 +402,23 @@
 
                 <input type="hidden" id="c_origin_address">
             </div>
-            <div style="margin-bottom:14px;">
+            <div style="margin-bottom:14px; position:relative;">
                 <label class="sh-label">Destination Address</label>
-                <input id="c_destination_address" type="text" placeholder="Delivery address" class="sh-input">
+                <input id="c_destination_address" type="text" placeholder="Search an address…" class="sh-input"
+                       autocomplete="off" oninput="onAddressInput()">
+                <div id="addrHint" style="font-size:10px; color:var(--subtle); margin-top:5px;">
+                    Type to search — picking a result drops the map pin. Clicking the map fills the address back.
+                </div>
+                {{-- Autocomplete suggestions (Nominatim) --}}
+                <div id="addrSuggest" style="display:none; position:absolute; left:0; right:0; top:100%; z-index:20;
+                    background:var(--surface); border:1px solid var(--border); border-radius:8px; margin-top:4px;
+                    max-height:220px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.35);"></div>
+            </div>
+
+            {{-- Delivery instructions — the geocoded address can't capture unit/floor/gate --}}
+            <div style="margin-bottom:14px;">
+                <label class="sh-label">Delivery Instructions <span style="text-transform:none; letter-spacing:0; color:var(--subtle);">(optional)</span></label>
+                <textarea id="c_delivery_notes" rows="2" class="sh-input" placeholder="Unit / floor / gate code, landmark, or notes for the driver"></textarea>
             </div>
 
             {{-- Destination Coordinates — toggle between map pin and manual --}}
@@ -669,6 +689,15 @@ async function loadDrawer(id) {
     document.getElementById('dOrigin').textContent      = s.origin_address;
     document.getElementById('dDestination').textContent = s.destination_address;
 
+    // Delivery instructions (hide the block entirely when there are none)
+    const notesWrap = document.getElementById('dNotesWrap');
+    if (s.delivery_notes) {
+        document.getElementById('dNotes').textContent = s.delivery_notes;
+        notesWrap.style.display = 'block';
+    } else {
+        notesWrap.style.display = 'none';
+    }
+
     // Timing
     infoBlock('dExpected',  'Expected By', s.expected_delivery_at ?? '—');
     infoBlock('dDelivered', 'Delivered At', s.actual_delivery_at ?? '—');
@@ -918,7 +947,7 @@ function initPickerMap() {
 
     pickerMap.on('click', function(e) {
         const { lat, lng } = e.latlng;
-        setMapPin(lat, lng);
+        onMapPinned(lat, lng);
     });
 }
 
@@ -946,9 +975,119 @@ function clearMapPin() {
 }
 
 function syncManualToHidden() {
-    document.getElementById('c_dest_lat').value = document.getElementById('c_dest_lat_manual').value;
-    document.getElementById('c_dest_lng').value = document.getElementById('c_dest_lng_manual').value;
+    const lat = document.getElementById('c_dest_lat_manual').value;
+    const lng = document.getElementById('c_dest_lng_manual').value;
+    document.getElementById('c_dest_lat').value = lat;
+    document.getElementById('c_dest_lng').value = lng;
+
+    // Two-way sync: reverse-geocode valid manual coords into the address field.
+    if (lat !== '' && lng !== '' && !isNaN(lat) && !isNaN(lng)) {
+        clearTimeout(reverseDebounce);
+        reverseDebounce = setTimeout(() => reverseGeocode(parseFloat(lat), parseFloat(lng)), 500);
+    }
 }
+
+// ── Address geocoding (self-hosted Nominatim, two-way synced with the pin) ─
+let addrDebounce    = null;
+let reverseDebounce = null;
+let lastAddrResults = [];
+
+function onAddressInput() {
+    const q = document.getElementById('c_destination_address').value.trim();
+    clearTimeout(addrDebounce);
+    if (q.length < 3) { hideAddrSuggest(); return; }
+    addrDebounce = setTimeout(() => geocodeSearch(q), 250);
+}
+
+async function geocodeSearch(q) {
+    try {
+        const res  = await fetch('/fleet/api/geocode?q=' + encodeURIComponent(q), {
+            headers: { 'Accept': 'application/json' },
+        });
+        const data = await res.json();
+        if (!res.ok) { hideAddrSuggest(); return; }
+        if (!data.available) {
+            setAddrHint('Address search is unavailable — click the map or use Manual to set coordinates.', true);
+            hideAddrSuggest();
+            return;
+        }
+        lastAddrResults = data.results || [];
+        renderAddrSuggest(lastAddrResults);
+    } catch (e) {
+        hideAddrSuggest();
+    }
+}
+
+function renderAddrSuggest(results) {
+    const box = document.getElementById('addrSuggest');
+    if (!results.length) { hideAddrSuggest(); return; }
+    box.innerHTML = results.map((r, i) =>
+        `<div onclick="selectAddr(${i})" style="padding:9px 12px; cursor:pointer; font-size:12px; border-bottom:1px solid var(--border);"
+              onmouseover="this.style.background='var(--muted)'" onmouseout="this.style.background='transparent'">
+            ${escapeHtml(r.label)}
+        </div>`).join('');
+    box.style.display = 'block';
+}
+
+function selectAddr(i) {
+    const r = lastAddrResults[i];
+    if (!r) return;
+    document.getElementById('c_destination_address').value = r.label;
+    hideAddrSuggest();
+    setAddrHint('Pinned from address. Click the map to fine-tune.', false);
+    // Show the pin on the map and drop it (address → pin). No reverse call here —
+    // we already have the canonical label from the search result.
+    switchCoordTab('map');
+    setMapPin(r.lat, r.lng);
+    if (pickerMap) {
+        pickerMap.setView([r.lat, r.lng], 16);
+        setTimeout(() => pickerMap.invalidateSize(), 60);
+    }
+}
+
+// Pin → address: set the pin, then reverse-geocode to fill the address field.
+function onMapPinned(lat, lng) {
+    setMapPin(lat, lng);
+    hideAddrSuggest();
+    clearTimeout(reverseDebounce);
+    reverseDebounce = setTimeout(() => reverseGeocode(lat, lng), 150);
+}
+
+async function reverseGeocode(lat, lng) {
+    try {
+        const res  = await fetch(`/fleet/api/geocode/reverse?lat=${lat}&lng=${lng}`, {
+            headers: { 'Accept': 'application/json' },
+        });
+        const data = await res.json();
+        if (res.ok && data.available && data.address) {
+            document.getElementById('c_destination_address').value = data.address;
+            setAddrHint('Address filled from the map pin.', false);
+        }
+    } catch (e) { /* soft dependency — leave the address untouched */ }
+}
+
+function hideAddrSuggest() {
+    const box = document.getElementById('addrSuggest');
+    box.style.display = 'none';
+    box.innerHTML = '';
+}
+
+function setAddrHint(text, warn) {
+    const h = document.getElementById('addrHint');
+    h.textContent = text;
+    h.style.color = warn ? 'var(--warning)' : 'var(--subtle)';
+}
+
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Close the suggestions when clicking outside the address field/dropdown.
+document.addEventListener('click', e => {
+    if (!e.target.closest('#addrSuggest') && e.target.id !== 'c_destination_address') {
+        hideAddrSuggest();
+    }
+});
 
 // ── Create shipment modal ─────────────────────────────────────────────────
 function openCreateModal() {
@@ -970,7 +1109,10 @@ function openCreateModal() {
     document.getElementById('originManualWrap').style.display = 'none';
     document.getElementById('originModeToggle').textContent   = 'Type manually instead';
     document.getElementById('c_destination_address').value = '';
+    document.getElementById('c_delivery_notes').value      = '';
     document.getElementById('c_expected_at').value         = '';
+    hideAddrSuggest();
+    setAddrHint('Type to search — picking a result drops the map pin. Clicking the map fills the address back.', false);
     clearMapPin();
     loadOriginPresets();
     // Init map after modal is visible
@@ -1029,6 +1171,7 @@ async function submitShipment() {
         client_phone:         document.getElementById('c_client_phone').value.trim() || null,
         origin_address:       origin.trim(),
         destination_address:  document.getElementById('c_destination_address').value.trim(),
+        delivery_notes:       document.getElementById('c_delivery_notes').value.trim() || null,
         destination_lat:      parseFloat(lat),
         destination_lng:      parseFloat(lng),
         expected_delivery_at: expectedAt,

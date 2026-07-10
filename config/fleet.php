@@ -30,4 +30,9 @@ return [
 
     // Where is OSRM located
     'osrm_url' => env('OSRM_URL', 'http://localhost:5001'),
+
+
+    // Nominatin config
+    'nominatim_url'           => env('NOMINATIM_URL', 'http://localhost:8082'),
+    'nominatim_country_codes' => env('NOMINATIM_COUNTRY_CODES', 'my'),
 ];

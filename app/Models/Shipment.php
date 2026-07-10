@@ -21,6 +21,7 @@ class Shipment extends Model
     {
         return $this->client_email;
     }
+
     protected $fillable = [
         'vehicle_id',
         'tracking_code',
@@ -29,6 +30,7 @@ class Shipment extends Model
         'client_phone',
         'origin_address',
         'destination_address',
+        'delivery_notes',
         'destination_lat',
         'destination_lng',
         'expected_delivery_at',
@@ -42,14 +44,14 @@ class Shipment extends Model
     ];
 
     protected $casts = [
-        'destination_lat'      => 'float',
-        'destination_lng'      => 'float',
+        'destination_lat' => 'float',
+        'destination_lng' => 'float',
         'expected_delivery_at' => 'datetime',
-        'actual_delivery_at'   => 'datetime',
-        'delay_notified'       => 'boolean',
-        'near_destination_at'   => 'datetime',
-        'left_radius_at'        => 'datetime',
-        'delivery_flag_sent'    => 'boolean',
+        'actual_delivery_at' => 'datetime',
+        'delay_notified' => 'boolean',
+        'near_destination_at' => 'datetime',
+        'left_radius_at' => 'datetime',
+        'delivery_flag_sent' => 'boolean',
     ];
 
     protected static function boot(): void
@@ -81,14 +83,17 @@ class Shipment extends Model
     public function getDeliveryPhotoUrlAttribute(): ?string
     {
         return $this->delivery_photo_path
-            ? '/storage/' . ltrim($this->delivery_photo_path, '/')
+            ? '/storage/'.ltrim($this->delivery_photo_path, '/')
             : null;
     }
 
     public function isDelayed(): bool
     {
-        if (in_array($this->status, ['delivered', 'cancelled'])) return false;
+        if (in_array($this->status, ['delivered', 'cancelled'])) {
+            return false;
+        }
         $threshold = config('fleet.delay_threshold_minutes', 15);
+
         return now()->diffInMinutes($this->expected_delivery_at, false) < -$threshold;
     }
 
@@ -99,14 +104,19 @@ class Shipment extends Model
     public function isCurrentlyNearDestination(int $radiusMetres = 200): bool
     {
         $pos = $this->vehicle?->latestPosition;
-        if (! $pos) return false;
+        if (! $pos) {
+            return false;
+        }
+
         return $pos->distanceTo($this->destination_lat, $this->destination_lng) <= $radiusMetres;
     }
 
     public function isNearDestination(float $radiusMetres = 200): bool
     {
         $latest = $this->vehicle->latestPosition;
-        if (! $latest) return false;
+        if (! $latest) {
+            return false;
+        }
 
         return $latest->distanceTo($this->destination_lat, $this->destination_lng) <= $radiusMetres;
     }
