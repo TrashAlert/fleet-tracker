@@ -378,8 +378,6 @@
                 <span style="color:{{ auth()->user()?->getRoleBadgeColor() ?? 'var(--subtle)' }};">
                     {{ strtoupper(auth()->user()?->role ?? '') }}
                 </span>
-                &nbsp;·&nbsp;
-                <span style="color: var(--accent);">● LIVE</span>
             </div>
         </div>
         <form method="POST" action="{{ route('auth.logout') }}">

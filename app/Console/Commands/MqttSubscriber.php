@@ -93,6 +93,22 @@ class MqttSubscriber extends Command
                 return;
             }
 
+            // Bounds check — a device sending lat 9999 or speed "abc" would
+            // otherwise persist raw and corrupt every derived distance/speed
+            // metric. One bad field rejects the whole packet.
+            if (! $this->telemetryInRange($data)) {
+                Log::warning("MQTT: out-of-range payload from {$clientId}: {$payload}");
+                ActivityLogger::logEvent(
+                    'mqtt_invalid_payload',
+                    "Out-of-range GPS payload received from device: {$clientId}",
+                    'Vehicle', $vehicle->id, $vehicle->plate_number,
+                    ['raw_payload' => $payload, 'reason' => 'out_of_range'],
+                    ['causer_type' => 'mqtt', 'causer_label' => $clientId]
+                );
+
+                return;
+            }
+
             $telemetry = GpsTelemetry::create([
                 'vehicle_id' => $vehicle->id,
                 'latitude' => $data['lat'],
@@ -131,6 +147,46 @@ class MqttSubscriber extends Command
                 ['causer_type' => 'system']
             );
         }
+    }
+
+    /**
+     * Bounds-check a decoded telemetry payload before persisting.
+     *
+     * lat/lng are required and must be physically sane; the other fields are
+     * optional (absent/null is fine — creation defaults apply) but when present
+     * must be numeric and within range. Rejecting the whole packet on any bad
+     * field is deliberate: half-writing a corrupt fix is worse than dropping it.
+     */
+    private function telemetryInRange(array $data): bool
+    {
+        $ranges = [
+            'lat' => [-90, 90, true],
+            'lng' => [-180, 180, true],
+            'speed' => [0, 300, false],
+            'satellites' => [0, 60, false],
+            'hdop' => [0, 50, false],
+        ];
+
+        foreach ($ranges as $key => [$min, $max, $required]) {
+            if (! isset($data[$key])) {
+                if ($required) {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (! is_numeric($data[$key])) {
+                return false;
+            }
+
+            $value = (float) $data[$key];
+            if ($value < $min || $value > $max) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function checkOverspeed(Vehicle $vehicle, GpsTelemetry $telemetry): void

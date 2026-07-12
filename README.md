@@ -303,16 +303,11 @@ Point nginx at `/var/www/fleet-tracker/public` and ensure the web user can read
 
 ## Known issues / open items
 
-1. **`bootstrap/providers.php` references providers that don't exist**
-   (`AppServiceProvider`, `FortifyServiceProvider`) — a fresh clone or
-   `php artisan optimize:clear` fatals with *Class not found*. Fix: create an
-   empty real `App\Providers\AppServiceProvider` and remove the Fortify line
-   (auth here is hand-rolled; Fortify was never a dependency).
-2. Public tracking routes (`/track`, `/api/track/{code}/status`) are
-   **unthrottled** — add `throttle:` middleware before an internet-facing deploy.
-3. MQTT payloads are **not bounds-checked** (lat/lng/speed ranges) before
-   persisting.
-4. Frontend build tooling (`package.json`, `vite.config.ts`, `components.json`)
+1. The public GET tracking routes (`/track`, `/api/track/{code}/status`) have
+   no Laravel-level `throttle:` middleware — rate limiting for them is done in
+   nginx on the internet-facing block. Add app-level throttling as
+   defense-in-depth if you deploy behind a different web server.
+2. Frontend build tooling (`package.json`, `vite.config.ts`, `components.json`)
    is configured for Inertia/Vue but not wired up — the real UI is Blade. Don't
    assume `npm run dev` works.
-5. `pusher/pusher-php-server` is an unused dependency.
+3. `pusher/pusher-php-server` and `laravel/sanctum` are unused dependencies.

@@ -118,6 +118,25 @@
             <span class="mono" style="color:var(--subtle);" id="live-pill-time">—</span>
         </div>
 
+        {{-- Trip playback bar (docked above the summary, hidden until a trip loads) --}}
+        <div id="playback-bar" class="hist-summary pb-bar" style="display:none;">
+            <button type="button" class="pb-btn" id="pb-play" onclick="togglePlay()" title="Play">
+                <svg id="pb-icon-play" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21"/></svg>
+                <svg id="pb-icon-pause" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="display:none;"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>
+            </button>
+            <button type="button" class="pb-btn" onclick="restartPlayback()" title="Restart">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="19 20 9 12 19 4" fill="currentColor" stroke="none"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+            </button>
+            <input type="range" id="pb-scrub" min="0" max="1000" value="0" oninput="scrubTo(this.value)" aria-label="Trip position">
+            <span class="mono pb-readout" id="pb-clock">--:--:--</span>
+            <span class="mono pb-readout" id="pb-speed" style="min-width:64px; text-align:right;">— km/h</span>
+            <select id="pb-rate" class="pb-rate" onchange="setPlaybackSpeed(this.value)" title="Playback speed">
+                <option value="10">10&times;</option>
+                <option value="60" selected>60&times;</option>
+                <option value="300">300&times;</option>
+            </select>
+        </div>
+
         {{-- History summary strip (docked, hidden until a trip loads) --}}
         <div id="history-summary" class="hist-summary" style="display:none;">
             <span class="hs-item mono" id="hs-replay" style="color:var(--accent2);"></span>
@@ -332,6 +351,36 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
 .hs-item .mono { color: var(--text); }
 .hs-leg { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--subtle); }
 .hs-swatch { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* ── Trip playback bar (docked just above the summary strip) ── */
+.pb-bar { bottom: 60px; gap: 10px; flex-wrap: nowrap; }
+.pb-btn {
+    background: var(--muted); border: none; border-radius: 6px;
+    width: 28px; height: 28px; flex-shrink: 0; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text);
+}
+.pb-btn:hover { color: var(--accent); }
+.pb-readout { font-size: 11px; color: var(--text); flex-shrink: 0; }
+.pb-rate {
+    background: var(--muted); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: var(--font-mono); font-size: 11px;
+    padding: 4px 6px; outline: none; flex-shrink: 0; cursor: pointer;
+}
+#pb-scrub {
+    flex: 1; min-width: 80px; height: 4px; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background: var(--muted); border-radius: 2px; outline: none;
+}
+#pb-scrub::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+}
+#pb-scrub::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+}
 
 /* ── Alert icon colours (unchanged from previous dashboard) ── */
 .alert-icon.overspeed svg { stroke: var(--danger); }
@@ -600,8 +649,163 @@ function speedColor(kmh) {
 }
 
 function clearHistoryLayers() {
+    teardownPlayback(); // cancel the RAF loop before its marker disappears
     historyLayers.forEach(l => map.removeLayer(l));
     historyLayers = [];
+}
+
+// ── Trip playback ─────────────────────────────────────────────────────────
+// Animates a marker along the loaded day's points, time-proportionally:
+// position is lerped between the two GPS fixes bracketing the current
+// trip-time, so pacing mirrors how the vehicle actually moved. Idle gaps
+// (parked / offline) are capped at 60s of trip-time so the marker never
+// crawls through a 3-hour lunch stop.
+const playback = {
+    points: [], times: [], totalMs: 0,
+    t: 0, cursor: 0, playing: false, speed: 60,
+    raf: null, lastFrame: null, marker: null,
+};
+
+function initPlayback(points) {
+    if (points.length < 2) return; // a single fix — nothing to animate
+
+    const IDLE_CAP_MS = 60000;
+    const times = [0];
+    for (let i = 1; i < points.length; i++) {
+        const dt = new Date(points[i].recorded_at) - new Date(points[i - 1].recorded_at);
+        times.push(times[i - 1] + Math.min(Math.max(dt, 0), IDLE_CAP_MS));
+    }
+
+    playback.points  = points;
+    playback.times   = times;
+    playback.totalMs = times[times.length - 1];
+    playback.t       = 0;
+    playback.cursor  = 0;
+    playback.playing = false;
+    playback.speed   = parseInt(document.getElementById('pb-rate').value, 10) || 60;
+
+    playback.marker = L.marker([points[0].latitude, points[0].longitude], {
+        icon: L.divIcon({
+            className: '',
+            html: `<div style="width:18px;height:18px;border-radius:50%;background:#ff6b35;border:3px solid #fff;box-shadow:0 0 10px #ff6b3599;"></div>`,
+            iconSize: [18, 18], iconAnchor: [9, 9],
+        }),
+        zIndexOffset: 1000, // ride above the start/end dots
+    }).addTo(map);
+    historyLayers.push(playback.marker); // cleaned up with the rest of the trip
+
+    document.getElementById('pb-scrub').value = 0;
+    setPlayIcon(false);
+    renderPlaybackFrame();
+    document.getElementById('playback-bar').style.display = 'flex';
+}
+
+function teardownPlayback() {
+    if (playback.raf) { cancelAnimationFrame(playback.raf); playback.raf = null; }
+    playback.playing = false;
+    playback.marker  = null; // the map layer itself is removed via historyLayers
+    playback.points  = [];
+    playback.times   = [];
+    document.getElementById('playback-bar').style.display = 'none';
+    setPlayIcon(false);
+}
+
+function setPlayIcon(playing) {
+    document.getElementById('pb-icon-play').style.display  = playing ? 'none' : 'block';
+    document.getElementById('pb-icon-pause').style.display = playing ? 'block' : 'none';
+    document.getElementById('pb-play').title = playing ? 'Pause' : 'Play';
+}
+
+function togglePlay() {
+    if (!playback.marker) return;
+
+    if (playback.playing) {
+        playback.playing = false;
+        if (playback.raf) { cancelAnimationFrame(playback.raf); playback.raf = null; }
+    } else {
+        if (playback.t >= playback.totalMs) { playback.t = 0; playback.cursor = 0; } // play again from the end
+        playback.playing   = true;
+        playback.lastFrame = null;
+        playback.raf = requestAnimationFrame(playbackFrame);
+    }
+    setPlayIcon(playback.playing);
+}
+
+function restartPlayback() {
+    if (!playback.marker) return;
+    playback.t = 0;
+    playback.cursor = 0;
+    renderPlaybackFrame(); // if playing, the loop continues from the start
+}
+
+function scrubTo(sliderValue) {
+    if (!playback.marker) return;
+    playback.t = (sliderValue / 1000) * playback.totalMs;
+    renderPlaybackFrame(true); // true: don't fight the thumb the user is dragging
+}
+
+function setPlaybackSpeed(v) {
+    playback.speed = parseInt(v, 10) || 60;
+}
+
+function playbackFrame(now) {
+    if (!playback.playing) return;
+
+    if (playback.lastFrame !== null) {
+        playback.t += (now - playback.lastFrame) * playback.speed;
+    }
+    playback.lastFrame = now;
+
+    if (playback.t >= playback.totalMs) {
+        playback.t = playback.totalMs;
+        renderPlaybackFrame();
+        playback.playing = false;
+        playback.raf = null;
+        setPlayIcon(false);
+        return;
+    }
+
+    renderPlaybackFrame();
+    playback.raf = requestAnimationFrame(playbackFrame);
+}
+
+function renderPlaybackFrame(skipSlider = false) {
+    const { points, times } = playback;
+    if (!playback.marker || points.length < 2) return;
+
+    // Advance the cursor to the segment bracketing t (O(1) amortized while
+    // playing; restarts from 0 after a backwards scrub).
+    let i = playback.cursor;
+    if (times[i] > playback.t) i = 0;
+    while (i < times.length - 2 && times[i + 1] <= playback.t) i++;
+    playback.cursor = i;
+
+    const a = points[i], b = points[i + 1];
+    const span = times[i + 1] - times[i];
+    const f = span > 0 ? Math.min(Math.max((playback.t - times[i]) / span, 0), 1) : 1;
+    const lat = Number(a.latitude) + (Number(b.latitude) - Number(a.latitude)) * f;
+    const lng = Number(a.longitude) + (Number(b.longitude) - Number(a.longitude)) * f;
+
+    playback.marker.setLatLng([lat, lng]);
+    map.panInside([lat, lng], { padding: [40, 40] });
+
+    // Readouts: wall-clock interpolated between the real fix timestamps;
+    // speed (and its color) from the segment's end fix, like the polyline.
+    const ta = new Date(a.recorded_at).getTime();
+    const tb = new Date(b.recorded_at).getTime();
+    document.getElementById('pb-clock').textContent =
+        new Date(ta + (tb - ta) * f).toLocaleTimeString('en-GB');
+
+    const kmh = b.speed_kmh ?? 0;
+    const speedEl = document.getElementById('pb-speed');
+    speedEl.textContent = Number(kmh).toFixed(0) + ' km/h';
+    speedEl.style.color = speedColor(kmh);
+
+    if (!skipSlider) {
+        document.getElementById('pb-scrub').value = playback.totalMs > 0
+            ? Math.round((playback.t / playback.totalMs) * 1000)
+            : 0;
+    }
 }
 
 async function loadTripHistory() {
@@ -685,6 +889,8 @@ async function loadTripHistory() {
         const vSel = document.getElementById('history-vehicle');
         document.getElementById('hs-replay').textContent =
             vSel.options[vSel.selectedIndex].text + ' \u00b7 ' + date;
+
+        initPlayback(points);
 
     } catch(e) {
         console.error('Trip history error:', e);
