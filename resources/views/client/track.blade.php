@@ -261,6 +261,65 @@
             border-top: 1px solid var(--border);
         }
 
+        /* ── Forwarding request card ── */
+        .fwd-card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; margin-bottom: 20px; overflow: hidden;
+        }
+        .fwd-card summary {
+            list-style: none; cursor: pointer; padding: 14px 22px;
+            display: flex; align-items: center; gap: 10px;
+            font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px;
+        }
+        .fwd-card summary::-webkit-details-marker { display: none; }
+        .fwd-card summary svg { color: var(--accent2); flex-shrink: 0; }
+        .fwd-cta {
+            margin-left: auto; flex-shrink: 0;
+            background: var(--accent2); color: #fff;
+            border-radius: 8px; padding: 7px 14px;
+            font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+        }
+        .fwd-card[open] .fwd-cta { display: none; }
+        .fwd-chevron { flex-shrink: 0; transition: transform 0.15s; color: var(--subtle); }
+        .fwd-card:not([open]) .fwd-chevron { display: none; }
+        .fwd-card[open] .fwd-chevron { margin-left: auto; }
+        .fwd-card[open] .fwd-chevron { transform: rotate(180deg); }
+        .fwd-body { padding: 0 22px 22px; border-top: 1px solid var(--border); }
+        .fwd-intro { font-size: 12px; color: var(--subtle); margin: 14px 0 16px; }
+        .fwd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .fwd-field { display: flex; flex-direction: column; gap: 5px; }
+        .fwd-field.full { grid-column: 1 / -1; }
+        .fwd-label {
+            font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+            color: var(--subtle); font-weight: 600;
+        }
+        .fwd-input {
+            border: 2px solid var(--border); background: var(--bg);
+            padding: 10px 13px; border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace; font-size: 13px;
+            color: var(--text); outline: none; transition: border-color 0.15s;
+            width: 100%;
+        }
+        .fwd-input:focus { border-color: var(--accent); }
+        textarea.fwd-input { resize: vertical; min-height: 60px; }
+        .fwd-errors {
+            background: rgba(220, 53, 69, 0.08); border: 1px solid rgba(220, 53, 69, 0.3);
+            border-radius: 8px; padding: 10px 14px; font-size: 12px;
+            color: var(--danger); margin: 14px 0 0;
+        }
+        .fwd-errors li { margin-left: 16px; }
+        .fwd-note {
+            display: flex; gap: 10px; align-items: flex-start;
+            padding: 16px 22px; font-size: 12px; color: var(--subtle);
+        }
+        .fwd-note svg { flex-shrink: 0; margin-top: 1px; color: var(--warning); }
+        .fwd-note.success svg { color: var(--success); }
+        .fwd-fineprint { font-size: 10px; color: var(--subtle); margin-top: 10px; }
+        .fwd-code {
+            font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 800;
+            letter-spacing: 0.18em; color: var(--accent2); margin-top: 8px;
+        }
+
         @media (max-width: 768px) {
             .container { padding: 20px; }
             .search-wrap { padding: 20px; }
@@ -269,6 +328,7 @@
             #client-map { height: 340px; }
             .stepper { padding: 16px 10px 12px; }
             .step-sub { display: none; }
+            .fwd-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -300,17 +360,95 @@
 <div class="container">
 
     @if(! $code)
-        {{-- Landing --}}
-        <div class="not-found">
-            <div style="margin-bottom:16px;">
-                <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1.5" style="display:block;margin:0 auto;">
-                    <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
-                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                    <line x1="12" y1="22.08" x2="12" y2="12"/>
-                </svg>
+        @if(session('request_code'))
+            {{-- Request submitted — show the counter code, large --}}
+            <div class="fwd-card" style="text-align:center; padding:36px 24px;">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" style="display:block; margin:0 auto 14px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <div style="font-family:'Syne',sans-serif; font-weight:700; font-size:16px;">Request submitted</div>
+                <div style="font-size:12px; color:var(--subtle); margin-top:6px;">Your request code:</div>
+                <div class="fwd-code">{{ session('request_code') }}</div>
+                <p style="font-size:12px; color:var(--subtle); max-width:420px; margin:14px auto 0;">
+                    Show this code to our staff at the counter. You'll also receive an email
+                    at the address you provided if your request is approved.
+                </p>
             </div>
-            <p style="font-size:14px; color:var(--subtle);">Enter your 10-character tracking code above to see your shipment status.</p>
-        </div>
+        @else
+            {{-- Landing --}}
+            <div class="not-found" style="padding-bottom:40px;">
+                <div style="margin-bottom:16px;">
+                    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1.5" style="display:block;margin:0 auto;">
+                        <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                    </svg>
+                </div>
+                <p style="font-size:14px; color:var(--subtle);">Enter your 10-character tracking code above to see your shipment status.</p>
+            </div>
+
+            {{-- ── Request a new shipment (no account needed) ── --}}
+            <details class="fwd-card" @if($errors->ticket->any()) open @endif>
+                <summary>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><line x1="12" y1="22.08" x2="12" y2="12"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/></svg>
+                    Want to send something?
+                    <span class="fwd-cta">Request a shipment</span>
+                    <svg class="fwd-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </summary>
+                <div class="fwd-body">
+                    <p class="fwd-intro">
+                        Tell us where your goods should go and how to reach you. When you submit,
+                        you'll get a request code to show our staff — our team will review the
+                        request, and you'll be emailed if it is approved.
+                    </p>
+
+                    @if($errors->ticket->any())
+                        <ul class="fwd-errors" style="margin-bottom:14px;">
+                            @foreach($errors->ticket->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    @endif
+
+                    <form method="POST" action="{{ route('client.track.request') }}">
+                        @csrf
+                        <div class="fwd-grid">
+                            <div class="fwd-field">
+                                <label class="fwd-label" for="fwd-name">Your name</label>
+                                <input class="fwd-input" id="fwd-name" name="client_name" maxlength="255" required value="{{ old('client_name') }}">
+                            </div>
+                            <div class="fwd-field">
+                                <label class="fwd-label" for="fwd-email">Your email</label>
+                                <input class="fwd-input" id="fwd-email" name="client_email" type="email" maxlength="255" required value="{{ old('client_email') }}">
+                            </div>
+                            <div class="fwd-field">
+                                <label class="fwd-label" for="fwd-phone">Phone (optional)</label>
+                                <input class="fwd-input" id="fwd-phone" name="client_phone" type="tel" maxlength="20" value="{{ old('client_phone') }}">
+                            </div>
+                            <div class="fwd-field">
+                                <label class="fwd-label" for="fwd-date">Preferred delivery date (optional)</label>
+                                <input class="fwd-input" id="fwd-date" name="requested_delivery_at" type="datetime-local" value="{{ old('requested_delivery_at') }}">
+                            </div>
+                            <div class="fwd-field full">
+                                <label class="fwd-label" for="fwd-address">Delivery address</label>
+                                <input class="fwd-input" id="fwd-address" name="destination_address" maxlength="500" required
+                                       placeholder="Full address the goods should be delivered to" value="{{ old('destination_address') }}">
+                            </div>
+                            <div class="fwd-field full">
+                                <label class="fwd-label" for="fwd-notes">Delivery instructions (optional)</label>
+                                <textarea class="fwd-input" id="fwd-notes" name="delivery_notes" maxlength="1000" rows="2"
+                                          placeholder="Unit / floor / gate code, landmark, or notes for the driver">{{ old('delivery_notes') }}</textarea>
+                            </div>
+                        </div>
+                        <div style="margin-top:16px;">
+                            <button class="search-btn" type="submit">
+                                Submit Request
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                            </button>
+                            <p class="fwd-fineprint">You'll be emailed if your request is approved.</p>
+                        </div>
+                    </form>
+                </div>
+            </details>
+        @endif
 
     @elseif(! $shipment)
         {{-- Not found --}}
@@ -351,7 +489,6 @@
                 </div>
             </div>
         </div>
-
         <div class="shipment-layout">
 
             {{-- Info panel --}}
@@ -449,6 +586,7 @@
             </div>
 
         </div>
+
     @endif
 
 </div>

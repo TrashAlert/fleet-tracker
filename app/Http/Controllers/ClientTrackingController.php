@@ -14,7 +14,7 @@ class ClientTrackingController extends Controller
      */
     public function index(Request $request)
     {
-        $code     = strtoupper(trim($request->query('code', '')));
+        $code = strtoupper(trim($request->query('code', '')));
         $shipment = null;
 
         if ($code) {
@@ -59,16 +59,16 @@ class ClientTrackingController extends Controller
         }
 
         return response()->json([
-            'status'          => $shipment->status,
+            'status' => $shipment->status,
             'location_hidden' => $locationHidden,
-            'delivered_at'    => $shipment->actual_delivery_at?->toIso8601String(),
-            'eta'             => $eta,
-            'vehicle'  => $pos ? [
-                'latitude'     => $pos->latitude,
-                'longitude'    => $pos->longitude,
-                'speed_kmh'    => $pos->speed_kmh,
-                'recorded_at'  => $pos->recorded_at?->toIso8601String(),
-                'driver_name'  => $shipment->vehicle?->driver_name,
+            'delivered_at' => $shipment->actual_delivery_at?->toIso8601String(),
+            'eta' => $eta,
+            'vehicle' => $pos ? [
+                'latitude' => $pos->latitude,
+                'longitude' => $pos->longitude,
+                'speed_kmh' => $pos->speed_kmh,
+                'recorded_at' => $pos->recorded_at?->toIso8601String(),
+                'driver_name' => $shipment->vehicle?->driver_name,
                 'driver_phone' => $shipment->vehicle?->driver_phone,
             ] : null,
         ]);
@@ -98,7 +98,7 @@ class ClientTrackingController extends Controller
                 // 'full' returns OSRM's complete road geometry (every OSM node),
                 // so curves and corners trace accurately. 'simplified' (the
                 // default) drops vertices and makes bends look faceted.
-                'overview'   => 'full',
+                'overview' => 'full',
                 'geometries' => 'geojson',
             ]);
 
@@ -122,7 +122,7 @@ class ClientTrackingController extends Controller
             return [
                 'eta_minutes' => (int) round($route['duration'] / 60),
                 'distance_km' => round($route['distance'] / 1000, 1),
-                'geometry'    => $geometry,
+                'geometry' => $geometry,
             ];
         } catch (\Throwable $e) {
             return null;

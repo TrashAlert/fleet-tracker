@@ -341,6 +341,9 @@
         <div style="padding:22px;">
             <div id="createError" style="display:none; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:10px 14px; font-size:12px; color:var(--danger); margin-bottom:16px;"></div>
 
+            {{-- Shown when prefilled from a forwarding request --}}
+            <div id="createTicketBanner" style="display:none; background:rgba(0,229,255,0.06); border:1px solid rgba(0,229,255,0.25); border-radius:8px; padding:10px 14px; font-size:12px; color:var(--accent); margin-bottom:16px;"></div>
+
             {{-- Section: Vehicle --}}
             <div class="sh-form-section">Vehicle</div>
             <div style="margin-bottom:14px;">
@@ -1089,14 +1092,65 @@ document.addEventListener('click', e => {
     }
 });
 
+// ── Prefill from a customer shipment request (?from_ticket=ID) ────────────
+let createTicketId = null;
+
+async function prefillFromTicket(id) {
+    try {
+        const res = await fetch(`/fleet/api/tickets/${id}`, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) { showToast('Could not load the shipment request.', 'var(--danger)'); return; }
+        const t = await res.json();
+
+        if (t.status !== 'pending') {
+            showToast('That shipment request has already been reviewed.', 'var(--warning)');
+            return;
+        }
+
+        openCreateModal();
+        createTicketId = t.id; // after openCreateModal(), which resets it
+
+        const banner = document.getElementById('createTicketBanner');
+        banner.textContent = `Prefilled from shipment request ${t.request_code}. ` +
+            `Pick the pickup warehouse and pin the destination — creating this shipment approves the request.`;
+        banner.style.display = 'block';
+
+        // The requester is the shipment's client. Origin is deliberately left
+        // alone — the manager picks the warehouse preset as usual.
+        document.getElementById('c_client_name').value  = t.client_name || '';
+        document.getElementById('c_client_email').value = t.client_email || '';
+        document.getElementById('c_client_phone').value = t.client_phone || '';
+
+        document.getElementById('c_destination_address').value = t.destination_address || '';
+        document.getElementById('c_delivery_notes').value      = t.delivery_notes || '';
+        if (t.requested_delivery_at) {
+            document.getElementById('c_expected_at').value = t.requested_delivery_at;
+        }
+
+        // Kick the geocoder so destination candidates appear immediately —
+        // the manager still has to pick one (or pin) to set coordinates.
+        onAddressInput();
+    } catch (e) {
+        showToast('Could not load the shipment request.', 'var(--danger)');
+    }
+}
+
+{
+    const fromTicket = new URLSearchParams(window.location.search).get('from_ticket');
+    if (fromTicket) {
+        document.addEventListener('DOMContentLoaded', () => prefillFromTicket(fromTicket));
+    }
+}
+
 // ── Create shipment modal ─────────────────────────────────────────────────
 function openCreateModal() {
     // Reset form
     coordMode = 'map';
     useOriginManual = false;
+    createTicketId  = null;
     switchCoordTab('map');
     document.getElementById('createModal').style.display  = 'flex';
     document.getElementById('createError').style.display  = 'none';
+    document.getElementById('createTicketBanner').style.display = 'none';
     document.getElementById('c_vehicle_id').value          = '';
     document.getElementById('c_client_name').value         = '';
     document.getElementById('c_client_email').value        = '';
@@ -1172,6 +1226,7 @@ async function submitShipment() {
         origin_address:       origin.trim(),
         destination_address:  document.getElementById('c_destination_address').value.trim(),
         delivery_notes:       document.getElementById('c_delivery_notes').value.trim() || null,
+        ticket_id:            createTicketId,
         destination_lat:      parseFloat(lat),
         destination_lng:      parseFloat(lng),
         expected_delivery_at: expectedAt,

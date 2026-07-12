@@ -20,3 +20,7 @@ Artisan::command('inspire', function () {
 
 // Offline detection — every minute, alert vehicles silent > threshold
 Schedule::command('fleet:check-offline')->everyMinute();
+
+// Delay detection — every minute, flip overdue started shipments to delayed and
+// alert clients even when the vehicle has stopped sending GPS packets.
+Schedule::command('fleet:check-delays')->everyMinute();

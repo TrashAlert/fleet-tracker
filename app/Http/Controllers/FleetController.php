@@ -5,11 +5,21 @@ namespace App\Http\Controllers;
 use App\Models\Alert;
 use App\Models\GpsTelemetry;
 use App\Models\Shipment;
+use App\Models\ShipmentTicket;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Notifications\DeliveryConfirmedNotification;
+use App\Notifications\ShipmentCreatedNotification;
+use App\Notifications\ShipmentTicketApprovedNotification;
 use App\Services\ActivityLogger;
+use App\Services\OsrmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Format;
+use Intervention\Image\ImageManager;
 
 class FleetController extends Controller
 {
@@ -18,7 +28,7 @@ class FleetController extends Controller
      */
     public function dashboard()
     {
-        $user  = auth()->user();
+        $user = auth()->user();
         $query = Vehicle::with(['latestPosition', 'activeShipment', 'activeShipments'])
             ->where('is_active', true);
 
@@ -51,7 +61,7 @@ class FleetController extends Controller
      */
     public function livePositions(): JsonResponse
     {
-        $user  = auth()->user();
+        $user = auth()->user();
         $query = Vehicle::with('latestPosition')->where('is_active', true);
 
         if ($user->isDriver() && $user->vehicle_id) {
@@ -59,19 +69,19 @@ class FleetController extends Controller
         }
 
         $positions = $query->get()
-            ->map(fn(Vehicle $v) => [
-                'id'           => $v->id,
-                'name'         => $v->name,
-                'plate'        => $v->plate_number,
-                'driver'       => $v->driver?->name ?? $v->getRawOriginal('driver_name'),
-                'is_offline'   => $v->isOffline(),
-                'latitude'     => $v->latestPosition?->latitude,
-                'longitude'    => $v->latestPosition?->longitude,
-                'speed_kmh'    => $v->latestPosition?->speed_kmh,
-                'heading'      => $v->latestPosition?->heading,
-                'satellites'   => $v->latestPosition?->satellites,
-                'hdop'         => $v->latestPosition?->hdop,
-                'recorded_at'  => $v->latestPosition?->recorded_at?->toIso8601String(),
+            ->map(fn (Vehicle $v) => [
+                'id' => $v->id,
+                'name' => $v->name,
+                'plate' => $v->plate_number,
+                'driver' => $v->driver?->name ?? $v->getRawOriginal('driver_name'),
+                'is_offline' => $v->isOffline(),
+                'latitude' => $v->latestPosition?->latitude,
+                'longitude' => $v->latestPosition?->longitude,
+                'speed_kmh' => $v->latestPosition?->speed_kmh,
+                'heading' => $v->latestPosition?->heading,
+                'satellites' => $v->latestPosition?->satellites,
+                'hdop' => $v->latestPosition?->hdop,
+                'recorded_at' => $v->latestPosition?->recorded_at?->toIso8601String(),
             ]);
 
         return response()->json($positions);
@@ -135,16 +145,24 @@ class FleetController extends Controller
      */
     public function shipments(Request $request)
     {
-        $user  = auth()->user();
+        $user = auth()->user();
         $query = Shipment::with('vehicle')->latest();
 
         if ($user->isDriver() && $user->vehicle_id) {
             $query->where('vehicle_id', $user->vehicle_id);
         }
-        if ($request->filled('status'))     { $query->where('status', $request->status); }
-        if ($request->filled('vehicle_id')) { $query->where('vehicle_id', $request->vehicle_id); }
-        if ($request->filled('date_from'))  { $query->whereDate('created_at', '>=', $request->date_from); }
-        if ($request->filled('date_to'))    { $query->whereDate('created_at', '<=', $request->date_to); }
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->filled('vehicle_id')) {
+            $query->where('vehicle_id', $request->vehicle_id);
+        }
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
 
         $shipments = $query->paginate(20)->withQueryString();
 
@@ -174,38 +192,38 @@ class FleetController extends Controller
      */
     public function shipmentDetail(Shipment $shipment): JsonResponse
     {
-        $shipment->load(['vehicle.latestPosition', 'alerts' => fn($q) => $q->latest()->take(5)]);
+        $shipment->load(['vehicle.latestPosition', 'alerts' => fn ($q) => $q->latest()->take(5)]);
 
         return response()->json([
-            'id'                   => $shipment->id,
-            'tracking_code'        => $shipment->tracking_code,
-            'status'               => $shipment->status,
-            'client_name'          => $shipment->client_name,
-            'client_email'         => $shipment->client_email,
-            'client_phone'         => $shipment->client_phone,
-            'origin_address'       => $shipment->origin_address,
-            'destination_address'  => $shipment->destination_address,
-            'delivery_notes'       => $shipment->delivery_notes,
-            'destination_lat'      => $shipment->destination_lat,
-            'destination_lng'      => $shipment->destination_lng,
+            'id' => $shipment->id,
+            'tracking_code' => $shipment->tracking_code,
+            'status' => $shipment->status,
+            'client_name' => $shipment->client_name,
+            'client_email' => $shipment->client_email,
+            'client_phone' => $shipment->client_phone,
+            'origin_address' => $shipment->origin_address,
+            'destination_address' => $shipment->destination_address,
+            'delivery_notes' => $shipment->delivery_notes,
+            'destination_lat' => $shipment->destination_lat,
+            'destination_lng' => $shipment->destination_lng,
             'expected_delivery_at' => $shipment->expected_delivery_at?->format('Y-m-d H:i'),
-            'actual_delivery_at'   => $shipment->actual_delivery_at?->format('Y-m-d H:i'),
-            'delivery_photo'       => $shipment->delivery_photo_url,
-            'created_at'           => $shipment->created_at->format('Y-m-d H:i'),
+            'actual_delivery_at' => $shipment->actual_delivery_at?->format('Y-m-d H:i'),
+            'delivery_photo' => $shipment->delivery_photo_url,
+            'created_at' => $shipment->created_at->format('Y-m-d H:i'),
             'vehicle' => $shipment->vehicle ? [
-                'id'          => $shipment->vehicle->id,
-                'name'        => $shipment->vehicle->name,
-                'plate'       => $shipment->vehicle->plate_number,
-                'driver'      => $shipment->vehicle->driver?->name ?? $shipment->vehicle->getRawOriginal('driver_name'),
-                'is_offline'  => $shipment->vehicle->isOffline(),
-                'latitude'    => $shipment->vehicle->latestPosition?->latitude,
-                'longitude'   => $shipment->vehicle->latestPosition?->longitude,
-                'speed_kmh'   => $shipment->vehicle->latestPosition?->speed_kmh,
+                'id' => $shipment->vehicle->id,
+                'name' => $shipment->vehicle->name,
+                'plate' => $shipment->vehicle->plate_number,
+                'driver' => $shipment->vehicle->driver?->name ?? $shipment->vehicle->getRawOriginal('driver_name'),
+                'is_offline' => $shipment->vehicle->isOffline(),
+                'latitude' => $shipment->vehicle->latestPosition?->latitude,
+                'longitude' => $shipment->vehicle->latestPosition?->longitude,
+                'speed_kmh' => $shipment->vehicle->latestPosition?->speed_kmh,
                 'recorded_at' => $shipment->vehicle->latestPosition?->recorded_at?->diffForHumans(),
             ] : null,
-            'alerts' => $shipment->alerts->map(fn($a) => [
-                'type'         => $a->type,
-                'message'      => $a->message,
+            'alerts' => $shipment->alerts->map(fn ($a) => [
+                'type' => $a->type,
+                'message' => $a->message,
                 'triggered_at' => $a->triggered_at->diffForHumans(),
             ]),
         ]);
@@ -295,24 +313,23 @@ class FleetController extends Controller
             ], 422);
         }
 
-        
         // GD decodes the full-resolution photo into a raw bitmap before it can be
         // scaled down — a high-megapixel phone photo can exceed PHP's 128M default.
         ini_set('memory_limit', '512M');
 
         // Downscale + re-encode the proof photo before storing (Intervention Image v4).
         // Auto-orientation is on by default, so phone photos stay upright.
-        $manager   = \Intervention\Image\ImageManager::usingDriver(\Intervention\Image\Drivers\Gd\Driver::class);
-        $image     = $manager->decode($photo->getRealPath())->scaleDown(width: 1280, height: 1280);
-        $encoded   = $image->encodeUsingFormat(\Intervention\Image\Format::JPEG, quality: 75);
-        $photoPath = 'delivery-proofs/' . \Illuminate\Support\Str::uuid() . '.jpg';
-        \Illuminate\Support\Facades\Storage::disk('public')->put($photoPath, (string) $encoded);
+        $manager = ImageManager::usingDriver(Driver::class);
+        $image = $manager->decode($photo->getRealPath())->scaleDown(width: 1280, height: 1280);
+        $encoded = $image->encodeUsingFormat(Format::JPEG, quality: 75);
+        $photoPath = 'delivery-proofs/'.Str::uuid().'.jpg';
+        Storage::disk('public')->put($photoPath, (string) $encoded);
 
         $shipment->update([
-            'status'              => 'delivered',
-            'actual_delivery_at'  => now(),
-            'left_radius_at'      => null,
-            'delivery_flag_sent'  => false,
+            'status' => 'delivered',
+            'actual_delivery_at' => now(),
+            'left_radius_at' => null,
+            'delivery_flag_sent' => false,
             'delivery_photo_path' => $photoPath,
         ]);
 
@@ -324,11 +341,11 @@ class FleetController extends Controller
             ['causer_type' => 'web', 'causer_label' => $user->name]
         );
 
-        $shipment->notify(new \App\Notifications\DeliveryConfirmedNotification($shipment));
+        $shipment->notify(new DeliveryConfirmedNotification($shipment));
 
         return response()->json([
-            'ok'                 => true,
-            'tracking_code'      => $shipment->tracking_code,
+            'ok' => true,
+            'tracking_code' => $shipment->tracking_code,
             'actual_delivery_at' => $shipment->actual_delivery_at->format('d M Y, H:i'),
         ]);
     }
@@ -350,34 +367,34 @@ class FleetController extends Controller
             return response()->json(['shipments' => []]);
         }
 
-        $pos    = $vehicle->latestPosition;
+        $pos = $vehicle->latestPosition;
         $active = $vehicle->activeShipments->values();
 
         // One OSRM Table request: road distance + drive time from the truck to every destination.
         $destinations = $active->map(fn ($s) => [(float) $s->destination_lat, (float) $s->destination_lng])->all();
-        $routes = app(\App\Services\OsrmService::class)->table(
+        $routes = app(OsrmService::class)->table(
             (float) $pos->latitude, (float) $pos->longitude, $destinations
         );
 
         $shipments = $active->map(function ($s, $i) use ($pos, $routes) {
             $distance = $pos->distanceTo($s->destination_lat, $s->destination_lng); // straight-line — used by the 200m confirm radius
-            $route    = $routes[$i] ?? null;
+            $route = $routes[$i] ?? null;
 
             return [
-                'shipment_id'           => $s->id,
-                'tracking_code'         => $s->tracking_code,
-                'client_name'           => $s->client_name,
-                'destination_address'   => $s->destination_address,
-                'delivery_notes'        => $s->delivery_notes,
-                'expected_at'           => $s->expected_delivery_at?->format('d M Y, H:i'),
-                'status'                => $s->status,
-                'distance_metres'       => round($distance),
+                'shipment_id' => $s->id,
+                'tracking_code' => $s->tracking_code,
+                'client_name' => $s->client_name,
+                'destination_address' => $s->destination_address,
+                'delivery_notes' => $s->delivery_notes,
+                'expected_at' => $s->expected_delivery_at?->format('d M Y, H:i'),
+                'status' => $s->status,
+                'distance_metres' => round($distance),
                 'route_distance_metres' => ($route && $route['distance_m'] !== null) ? (int) round($route['distance_m']) : null,
-                'route_eta_minutes'     => ($route && $route['duration_s'] !== null) ? (int) round($route['duration_s'] / 60) : null,
-                'near_destination'      => $distance <= 200,
-                'near_destination_at'   => $s->near_destination_at?->toIso8601String(),
-                'left_radius_at'        => $s->left_radius_at?->toIso8601String(),
-                'delivery_flag_sent'    => $s->delivery_flag_sent,
+                'route_eta_minutes' => ($route && $route['duration_s'] !== null) ? (int) round($route['duration_s'] / 60) : null,
+                'near_destination' => $distance <= 200,
+                'near_destination_at' => $s->near_destination_at?->toIso8601String(),
+                'left_radius_at' => $s->left_radius_at?->toIso8601String(),
+                'delivery_flag_sent' => $s->delivery_flag_sent,
             ];
         });
 
@@ -420,20 +437,22 @@ class FleetController extends Controller
         $request->headers->set('Accept', 'application/json');
 
         $data = $request->validate([
-            'vehicle_id'           => 'required|exists:vehicles,id',
-            'client_name'          => 'required|string|max:255',
-            'client_email'         => 'required|email|max:255',
-            'client_phone'         => 'nullable|string|max:20',
-            'origin_address'       => 'required|string|max:500',
-            'destination_address'  => 'required|string|max:500',
-            'delivery_notes'       => 'nullable|string|max:1000',
-            'destination_lat'      => 'required|numeric|between:-90,90',
-            'destination_lng'      => 'required|numeric|between:-180,180',
+            'vehicle_id' => 'required|exists:vehicles,id',
+            'client_name' => 'required|string|max:255',
+            'client_email' => 'required|email|max:255',
+            'client_phone' => 'nullable|string|max:20',
+            'origin_address' => 'required|string|max:500',
+            'destination_address' => 'required|string|max:500',
+            'delivery_notes' => 'nullable|string|max:1000',
+            'destination_lat' => 'required|numeric|between:-90,90',
+            'destination_lng' => 'required|numeric|between:-180,180',
             'expected_delivery_at' => 'required|date',
+            // Present when creating from an approved forwarding request
+            'ticket_id' => 'nullable|exists:shipment_tickets,id',
         ]);
 
         // Enforce the per-vehicle active shipment cap
-        $maxActive   = config('fleet.max_active_shipments', 10);
+        $maxActive = config('fleet.max_active_shipments', 10);
         $activeCount = Shipment::where('vehicle_id', $data['vehicle_id'])
             ->whereIn('status', ['pending', 'in_transit', 'delayed'])
             ->count();
@@ -457,13 +476,42 @@ class FleetController extends Controller
             ['client_email' => $shipment->client_email, 'expected_at' => $shipment->expected_delivery_at]
         );
 
-        $shipment->notify(new \App\Notifications\ShipmentCreatedNotification($shipment));
+        $shipment->notify(new ShipmentCreatedNotification($shipment));
+
+        // Created from a customer shipment request? Approve it and email the
+        // requester (who is also the new shipment's client, so they received
+        // ShipmentCreatedNotification above with the tracking link).
+        // Only a still-pending request flips — reviewed ones are left untouched.
+        if (! empty($data['ticket_id'])) {
+            $ticket = ShipmentTicket::find($data['ticket_id']);
+
+            if ($ticket && $ticket->status === 'pending') {
+                $ticket->update([
+                    'status' => 'approved',
+                    'reviewed_by' => auth()->id(),
+                    'reviewed_at' => now(),
+                    'created_shipment_id' => $shipment->id,
+                ]);
+
+                $ticket->notify(
+                    new ShipmentTicketApprovedNotification($ticket, $shipment)
+                );
+
+                ActivityLogger::logEvent(
+                    'ticket_approved',
+                    "Shipment request {$ticket->request_code} approved — shipment {$shipment->tracking_code} created",
+                    'ShipmentTicket', $ticket->id, $ticket->request_code,
+                    ['new_shipment_id' => $shipment->id, 'new_tracking_code' => $shipment->tracking_code]
+                );
+            }
+        }
 
         return response()->json([
             'tracking_code' => $shipment->tracking_code,
-            'id'            => $shipment->id,
+            'id' => $shipment->id,
         ], 201);
     }
+
     /**
      * Update vehicle details.
      */
@@ -472,8 +520,8 @@ class FleetController extends Controller
         $request->headers->set('Accept', 'application/json');
 
         $data = $request->validate([
-            'name'           => 'required|string|max:100',
-            'plate_number'   => 'required|string|max:20|unique:vehicles,plate_number',
+            'name' => 'required|string|max:100',
+            'plate_number' => 'required|string|max:20|unique:vehicles,plate_number',
             'mqtt_client_id' => 'required|string|max:100|unique:vehicles,mqtt_client_id',
             'driver_user_id' => 'nullable|exists:users,id',
         ]);
@@ -503,9 +551,9 @@ class FleetController extends Controller
     public function updateVehicle(Request $request, Vehicle $vehicle): JsonResponse
     {
         $data = $request->validate([
-            'name'           => 'required|string|max:255',
-            'plate_number'   => 'required|string|max:20|unique:vehicles,plate_number,' . $vehicle->id,
-            'mqtt_client_id' => 'required|string|max:100|unique:vehicles,mqtt_client_id,' . $vehicle->id,
+            'name' => 'required|string|max:255',
+            'plate_number' => 'required|string|max:20|unique:vehicles,plate_number,'.$vehicle->id,
+            'mqtt_client_id' => 'required|string|max:100|unique:vehicles,mqtt_client_id,'.$vehicle->id,
             'driver_user_id' => 'nullable|exists:users,id',
         ]);
 
@@ -554,7 +602,7 @@ class FleetController extends Controller
     public function destroyVehicle(Vehicle $vehicle): JsonResponse
     {
         $label = $vehicle->plate_number;
-        $id    = $vehicle->id;
+        $id = $vehicle->id;
 
         $vehicle->delete();
 
@@ -572,17 +620,17 @@ class FleetController extends Controller
      */
     public function unreadAlerts(): JsonResponse
     {
-        $user  = auth()->user();
+        $user = auth()->user();
         $query = Alert::where('is_read', false)->latest('triggered_at');
 
         if ($user->isDriver() && $user->vehicle_id) {
             $query->where('vehicle_id', $user->vehicle_id);
         }
 
-        $alerts = $query->take(50)->get()->map(fn($a) => [
-            'id'           => $a->id,
-            'type'         => $a->type,
-            'message'      => $a->message,
+        $alerts = $query->take(50)->get()->map(fn ($a) => [
+            'id' => $a->id,
+            'type' => $a->type,
+            'message' => $a->message,
             'triggered_at' => $a->triggered_at->diffForHumans(),
         ]);
 

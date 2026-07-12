@@ -7,6 +7,7 @@ use App\Http\Controllers\FleetController;
 use App\Http\Controllers\GeocodingController;
 use App\Http\Controllers\OriginLocationController;
 use App\Http\Controllers\PerformanceController;
+use App\Http\Controllers\ShipmentTicketController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -32,6 +33,10 @@ Route::post('/logout', [LoginController::class, 'logout'])
 Route::get('/track', [ClientTrackingController::class, 'index'])->name('client.track');
 Route::get('/api/track/{trackingCode}/status', [ClientTrackingController::class, 'status'])
     ->name('client.track.status');
+// New-shipment request — the portal's only public write endpoint, so throttled.
+Route::post('/api/track/request', [ShipmentTicketController::class, 'store'])
+    ->middleware('throttle:5,1')
+    ->name('client.track.request');
 
 /*
 |--------------------------------------------------------------------------
@@ -77,6 +82,13 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
     Route::middleware(['role:admin,manager', 'throttle:30,1'])->group(function () {
         Route::get('/api/geocode', [GeocodingController::class, 'search'])->name('api.geocode');
         Route::get('/api/geocode/reverse', [GeocodingController::class, 'reverse'])->name('api.geocode.reverse');
+    });
+
+    // ── Forwarding tickets (client requests, admin/manager review) ────────
+    Route::middleware('role:admin,manager')->group(function () {
+        Route::get('/tickets', [ShipmentTicketController::class, 'index'])->name('tickets');
+        Route::get('/api/tickets/{ticket}', [ShipmentTicketController::class, 'show'])->name('api.ticket.show');
+        Route::patch('/api/tickets/{ticket}/deny', [ShipmentTicketController::class, 'deny'])->name('api.ticket.deny');
     });
 
     // Delivery lifecycle — driver only
