@@ -15,6 +15,7 @@ use App\Services\ActivityLogger;
 use App\Services\OsrmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Drivers\Gd\Driver;
@@ -107,6 +108,63 @@ class FleetController extends Controller
             ->get(['latitude', 'longitude', 'speed_kmh', 'recorded_at']);
 
         return response()->json($points);
+    }
+
+    /**
+     * Road route + ETA from a vehicle's live position to its CURRENT delivery
+     * destination (the started, in_transit shipment). Fetched on demand when a
+     * dashboard user clicks a vehicle — deliberately not part of the live poll,
+     * so OSRM load stays at one cached call per click instead of N per 5s.
+     *
+     * OSRM is a soft dependency: when it's down, `eta_minutes`/`geometry` are
+     * null and the UI falls back to a straight dashed line to the destination.
+     */
+    public function vehicleRoute(Vehicle $vehicle): JsonResponse
+    {
+        $user = auth()->user();
+
+        // Drivers can only view their own vehicle (same scoping as tripHistory)
+        if ($user->isDriver() && $user->vehicle_id !== $vehicle->id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
+
+        $vehicle->load('latestPosition');
+        $pos = $vehicle->latestPosition;
+        $shipment = $vehicle->shipments()->where('status', 'in_transit')->latest()->first();
+
+        if (! $pos || ! $shipment) {
+            return response()->json([
+                'available' => false,
+                'reason' => ! $pos ? 'No GPS position for this vehicle yet.' : 'No delivery in progress for this vehicle.',
+            ]);
+        }
+
+        // Cache briefly: a click-storm or the 20s refresh while selected reuses
+        // the same computation. Keyed on shipment too, so a new delivery never
+        // serves the previous route.
+        $route = Cache::remember(
+            "vehicle-route:{$vehicle->id}:{$shipment->id}",
+            15,
+            fn () => app(OsrmService::class)->route(
+                (float) $pos->latitude, (float) $pos->longitude,
+                (float) $shipment->destination_lat, (float) $shipment->destination_lng
+            )
+        );
+
+        return response()->json([
+            'available' => true,
+            'tracking_code' => $shipment->tracking_code,
+            'client_name' => $shipment->client_name,
+            'destination' => [
+                'lat' => (float) $shipment->destination_lat,
+                'lng' => (float) $shipment->destination_lng,
+                'address' => $shipment->destination_address,
+            ],
+            'expected_at' => $shipment->expected_delivery_at?->format('d M Y, H:i'),
+            'eta_minutes' => $route['eta_minutes'] ?? null,
+            'distance_km' => $route['distance_km'] ?? null,
+            'geometry' => $route['geometry'] ?? null,
+        ]);
     }
 
     /**

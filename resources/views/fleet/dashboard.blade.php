@@ -118,6 +118,17 @@
             <span class="mono" style="color:var(--subtle);" id="live-pill-time">—</span>
         </div>
 
+        {{-- Destination route strip (click a vehicle; hidden until then) --}}
+        <div id="route-strip" class="hist-summary" style="display:none;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent2)" stroke-width="2" style="flex-shrink:0;"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+            <span class="hs-item mono" id="rs-main" style="color:var(--text); font-weight:600;"></span>
+            <span class="hs-item mono" id="rs-meta"></span>
+            <span style="flex:1"></span>
+            <button class="pb-btn" onclick="clearVehicleRoute()" title="Clear route" style="width:24px; height:24px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+
         {{-- Trip playback bar (docked above the summary, hidden until a trip loads) --}}
         <div id="playback-bar" class="hist-summary pb-bar" style="display:none;">
             <button type="button" class="pb-btn" id="pb-play" onclick="togglePlay()" title="Play">
@@ -468,7 +479,8 @@ async function fetchLivePositions() {
             } else {
                 markers[v.id] = L.marker(latlng, { icon: makeIcon(v.is_offline) })
                     .addTo(map)
-                    .bindPopup('');
+                    .bindPopup('')
+                    .on('click', () => focusVehicle(v.id)); // also shows its destination route
             }
 
             markers[v.id].getPopup().setContent(`
@@ -532,6 +544,7 @@ function focusVehicle(id) {
         map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 15), { duration: 0.6 });
         m.openPopup();
     }
+    showVehicleRoute(id);
 }
 
 // ── Alerts panel open/collapse ────────────────────────────────────────────
@@ -635,6 +648,83 @@ function switchToHistory() {
 function switchToLive() {
     setSeg('live');
     exitHistoryMode();
+}
+
+// ── Destination route (click a vehicle → where is it heading?) ────────────
+// Fetched on demand only — one cached OSRM call per click, plus a 20s refresh
+// while a vehicle stays selected. Never part of the 5s live poll.
+let routeView = { vehicleId: null, layers: [], timer: null };
+
+async function showVehicleRoute(id) {
+    try {
+        const res = await fetch(`/fleet/api/vehicle/${id}/route`, {
+            headers: { 'Accept': 'application/json' },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        clearVehicleRoute(); // one route at a time; also stops the old timer
+
+        const strip = document.getElementById('route-strip');
+        const main  = document.getElementById('rs-main');
+        const meta  = document.getElementById('rs-meta');
+
+        if (!data.available) {
+            main.textContent = data.reason || 'No delivery in progress.';
+            meta.textContent = '';
+            strip.style.display = 'flex';
+            routeView.vehicleId = id;
+            return;
+        }
+
+        routeView.vehicleId = id;
+
+        // Destination marker (orange — matches the panel's tracking-code accent)
+        const destIcon = L.divIcon({
+            className: '',
+            html: `<div style="width:16px;height:16px;border-radius:50%;background:#ff6b35;border:3px solid #fff;box-shadow:0 0 8px #ff6b3599;"></div>`,
+            iconSize: [16, 16], iconAnchor: [8, 8],
+        });
+        routeView.layers.push(
+            L.marker([data.destination.lat, data.destination.lng], { icon: destIcon })
+                .addTo(map)
+                .bindPopup(`<b>${data.tracking_code}</b><br>${data.destination.address}`)
+        );
+
+        // Road geometry when OSRM answered; dashed straight line as the fallback.
+        const vm = markers[id];
+        if (data.geometry && data.geometry.length > 1) {
+            routeView.layers.push(L.polyline(data.geometry, { color: '#ffffff', weight: 7, opacity: 0.9, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.5 }).addTo(map));
+            routeView.layers.push(L.polyline(data.geometry, { color: '#2563eb', weight: 4, opacity: 0.85, lineJoin: 'round', lineCap: 'round', smoothFactor: 0.5 }).addTo(map));
+        } else if (vm) {
+            routeView.layers.push(L.polyline(
+                [vm.getLatLng(), [data.destination.lat, data.destination.lng]],
+                { color: '#ff6b35', weight: 3, opacity: 0.7, dashArray: '8 8' }
+            ).addTo(map));
+        }
+
+        main.textContent = `${data.tracking_code} · ${data.client_name}`;
+        meta.textContent = (data.distance_km != null
+                ? `${data.distance_km} km · ~${data.eta_minutes} min by road`
+                : 'road route unavailable — straight line shown')
+            + (data.expected_at ? ` · due ${data.expected_at}` : '');
+        strip.style.display = 'flex';
+
+        // Keep the line/ETA fresh while selected (server caches for 15s).
+        routeView.timer = setInterval(() => {
+            if (routeView.vehicleId === id && !historyMode) showVehicleRoute(id);
+        }, 20000);
+    } catch (e) {
+        console.error('Route fetch error:', e);
+    }
+}
+
+function clearVehicleRoute() {
+    if (routeView.timer) { clearInterval(routeView.timer); routeView.timer = null; }
+    routeView.layers.forEach(l => map.removeLayer(l));
+    routeView.layers = [];
+    routeView.vehicleId = null;
+    document.getElementById('route-strip').style.display = 'none';
 }
 
 // ── Trip History ──────────────────────────────────────────────────────────
@@ -902,6 +992,7 @@ function enterHistoryMode() {
     if (historyMode) return;
     historyMode = true;
 
+    clearVehicleRoute(); // live-mode overlay — never mixes with history layers
     if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
 
     Object.values(markers).forEach(m => map.removeLayer(m));

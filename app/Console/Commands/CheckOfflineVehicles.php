@@ -10,13 +10,14 @@ use Illuminate\Support\Facades\Log;
 
 class CheckOfflineVehicles extends Command
 {
-    protected $signature   = 'fleet:check-offline';
+    protected $signature = 'fleet:check-offline';
+
     protected $description = 'Create offline alerts for vehicles with started deliveries that have stopped sending GPS data';
 
     public function handle(): int
     {
         $threshold = config('fleet.offline_alert_threshold_seconds', 180);
-        $cutoff    = now()->subSeconds($threshold);
+        $cutoff = now()->subSeconds($threshold);
 
         // Only vehicles that are active AND have a started delivery. Only
         // in_transit counts: delayed means "late, never started" — a silent
@@ -52,15 +53,15 @@ class CheckOfflineVehicles extends Command
             $minutesSilent = (int) $pos->recorded_at->diffInMinutes(now());
 
             Alert::create([
-                'vehicle_id'   => $vehicle->id,
-                'shipment_id'  => $vehicle->activeShipment?->id,
-                'type'         => 'offline',
-                'message'      => "{$vehicle->name} ({$vehicle->plate_number}) has stopped sending GPS data for {$minutesSilent} minutes while on an active delivery.",
-                'meta'         => [
-                    'last_seen_at'   => $pos->recorded_at->toIso8601String(),
+                'vehicle_id' => $vehicle->id,
+                'shipment_id' => $vehicle->activeShipment?->id,
+                'type' => 'offline',
+                'message' => "{$vehicle->name} ({$vehicle->plate_number}) has stopped sending GPS data for {$minutesSilent} minutes while on an active delivery.",
+                'meta' => [
+                    'last_seen_at' => $pos->recorded_at->toIso8601String(),
                     'minutes_silent' => $minutesSilent,
-                    'last_lat'       => $pos->latitude,
-                    'last_lng'       => $pos->longitude,
+                    'last_lat' => $pos->latitude,
+                    'last_lng' => $pos->longitude,
                 ],
                 'triggered_at' => now(),
             ]);
@@ -78,6 +79,7 @@ class CheckOfflineVehicles extends Command
         }
 
         $this->info("Checked {$vehicles->count()} vehicles with started deliveries — {$alerted} offline alert(s) created.");
+
         return self::SUCCESS;
     }
 }

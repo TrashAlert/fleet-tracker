@@ -66,6 +66,7 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
     Route::get('/api/live', [FleetController::class, 'livePositions'])->name('api.live');
     Route::get('/api/alerts', [FleetController::class, 'unreadAlerts'])->name('api.alerts');
     Route::get('/api/vehicle/{vehicle}/history', [FleetController::class, 'tripHistory'])->name('api.history');
+    Route::get('/api/vehicle/{vehicle}/route', [FleetController::class, 'vehicleRoute'])->name('api.vehicle.route');
     Route::post('/api/alerts/{alert}/read', [FleetController::class, 'markAlertRead'])->name('api.alert.read');
 
     // ── Shipments ─────────────────────────────────────────────────────────
