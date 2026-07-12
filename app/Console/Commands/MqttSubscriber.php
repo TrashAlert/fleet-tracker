@@ -226,10 +226,11 @@ class MqttSubscriber extends Command
         }
 
         foreach ($shipments as $shipment) {
-            // Radius monitoring only applies to started shipments.
-            // Pending shipments are skipped until the driver acknowledges them,
-            // but delay detection still runs for them (client should know either way).
-            if (in_array($shipment->status, ['in_transit', 'delayed'])) {
+            // Radius monitoring only applies to STARTED shipments (in_transit).
+            // Pending AND delayed (= late, never started) are skipped until the
+            // driver acknowledges them, but delay detection still runs so the
+            // client is alerted either way.
+            if ($shipment->status === 'in_transit') {
                 $this->checkShipmentRadius($vehicle, $telemetry, $shipment);
             } else {
                 $this->checkShipmentDelay($vehicle, $shipment);

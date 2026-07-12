@@ -231,6 +231,8 @@ class FleetController extends Controller
 
     /**
      * Driver starts a delivery — acknowledges the shipment, pending → in_transit.
+     * `delayed` (= late but never started) is startable too, so a shipment that
+     * goes late before the driver taps Start can never deadlock.
      * One at a time: rejected if another shipment is already in transit.
      */
     public function startDelivery(Request $request, Shipment $shipment): JsonResponse
@@ -242,13 +244,14 @@ class FleetController extends Controller
             return response()->json(['error' => 'Unauthorized.'], 403);
         }
 
-        if ($shipment->status !== 'pending') {
+        if (! in_array($shipment->status, ['pending', 'delayed'])) {
             return response()->json(['error' => 'This shipment has already been started.'], 422);
         }
 
-        // One at a time — block if another shipment is already in progress
+        // One at a time — block if another shipment is already in progress.
+        // Only in_transit counts: delayed means "late, not yet started".
         $inProgress = Shipment::where('vehicle_id', $shipment->vehicle_id)
-            ->whereIn('status', ['in_transit', 'delayed'])
+            ->where('status', 'in_transit')
             ->where('id', '!=', $shipment->id)
             ->first();
 
@@ -295,8 +298,8 @@ class FleetController extends Controller
             return response()->json(['error' => 'The photo is too large (max 8 MB).'], 422);
         }
 
-        // Shipment must be started first (one-at-a-time flow)
-        if (! in_array($shipment->status, ['in_transit', 'delayed'])) {
+        // Shipment must be started first (delayed = late but never started)
+        if ($shipment->status !== 'in_transit') {
             return response()->json(['error' => 'Start this delivery before confirming it.'], 422);
         }
 

@@ -18,9 +18,11 @@ class CheckOfflineVehicles extends Command
         $threshold = config('fleet.offline_alert_threshold_seconds', 180);
         $cutoff    = now()->subSeconds($threshold);
 
-        // Only vehicles that are active AND have a started delivery (in_transit / delayed)
+        // Only vehicles that are active AND have a started delivery. Only
+        // in_transit counts: delayed means "late, never started" — a silent
+        // vehicle that hasn't left yet shouldn't page anyone.
         $vehicles = Vehicle::where('is_active', true)
-            ->whereHas('shipments', fn($q) => $q->whereIn('status', ['in_transit', 'delayed']))
+            ->whereHas('shipments', fn ($q) => $q->where('status', 'in_transit'))
             ->with('latestPosition')
             ->get();
 

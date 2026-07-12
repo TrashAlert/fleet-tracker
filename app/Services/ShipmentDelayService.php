@@ -17,20 +17,18 @@ use Illuminate\Support\Facades\Log;
 class ShipmentDelayService
 {
     /**
-     * Apply delay handling to a single shipment:
+     * Apply delay handling to a single shipment. `delayed` means
+     * "late and NOT yet started":
      *
-     *   - a STARTED (in_transit) shipment past the delay threshold flips to
-     *     `delayed` — regardless of whether the client was already alerted while
-     *     it was still pending (this is the split that fixes the old bug where a
-     *     shipment alerted-while-pending could never enter `delayed` after start);
-     *   - the client is alerted + notified exactly ONCE, guarded by
-     *     `delay_notified`.
+     *   - a PENDING shipment past the delay threshold flips to `delayed`
+     *     (the driver can still start it — startDelivery accepts both);
+     *   - an IN_TRANSIT shipment past the threshold KEEPS its status — the
+     *     dashboards show the red OVERDUE badge instead of a status flip;
+     *   - either way the client is alerted + notified exactly ONCE,
+     *     guarded by `delay_notified`.
      *
-     * PENDING shipments intentionally keep their status so the driver can still
-     * "start" them (no deadlock) — they only receive the alert/notification.
-     *
-     * Safe to call repeatedly (per packet or per sweep): it is a no-op once the
-     * shipment is `delayed` and the client has been notified.
+     * Safe to call repeatedly (per packet or per sweep): it is a no-op once
+     * the status is settled and the client has been notified.
      *
      * @return bool whether anything changed (a status flip and/or the first alert)
      */
@@ -43,8 +41,9 @@ class ShipmentDelayService
         $alreadyNotified = (bool) $shipment->delay_notified;
 
         $updates = [];
-        // Flip a started shipment to delayed — independent of delay_notified.
-        if ($shipment->status === 'in_transit') {
+        // Late before the driver started it → delayed. Started shipments keep
+        // in_transit (the OVERDUE badge covers them) — independent of delay_notified.
+        if ($shipment->status === 'pending') {
             $updates['status'] = 'delayed';
         }
         // Mark the one-time client alert as sent.

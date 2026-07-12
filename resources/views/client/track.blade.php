@@ -606,14 +606,16 @@ const DEST_LNG = {{ $shipment->destination_lng }};
 @php
     // Compute these in PHP so the @json directives below receive simple
     // variables — Blade can choke on in_array(..., [...]) inside @json().
-    $locationHidden     = in_array($shipment->status, ['pending', 'delivered', 'cancelled']);
+    // delayed = late but never started, so it counts as "not yet dispatched".
+    $locationHidden     = $shipment->status !== 'in_transit';
     $isTerminal         = in_array($shipment->status, ['delivered', 'cancelled']);
-    $isPending          = $shipment->status === 'pending';
+    $isPending          = in_array($shipment->status, ['pending', 'delayed']);
     $deliveredAtIso     = $shipment->actual_delivery_at?->toIso8601String();
     $showInitialVehicle = $shipment->vehicle->latestPosition && ! $locationHidden;
 @endphp
-// The truck location is shown only while moving (in_transit/delayed). It's
-// hidden before dispatch (pending) and after completion (delivered/cancelled).
+// The truck location is shown only while moving (in_transit). It's hidden
+// before dispatch (pending / delayed-unstarted) and after completion
+// (delivered/cancelled).
 const LOCATION_HIDDEN = @json($locationHidden);
 const IS_TERMINAL     = @json($isTerminal);
 const IS_PENDING      = @json($isPending);

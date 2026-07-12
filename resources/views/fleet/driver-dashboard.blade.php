@@ -89,7 +89,7 @@
                 $pos      = $vehicle->latestPosition;
                 $distance = $pos ? round($pos->distanceTo($s->destination_lat, $s->destination_lng)) : null;
                 $overdue  = $s->expected_delivery_at && $s->expected_delivery_at->isPast();
-                $isStarted = in_array($s->status, ['in_transit', 'delayed']);
+                $isStarted = $s->status === 'in_transit'; // delayed = late, never started
             @endphp
             <div class="delivery-item {{ $isStarted ? 'delivery-started' : '' }}" id="delivery-{{ $s->id }}"
                  data-distance="{{ $distance ?? 999999 }}" data-status="{{ $s->status }}"
@@ -151,7 +151,8 @@
                     @endif
                 </div>
 
-                @if($s->status === 'pending')
+                @if(in_array($s->status, ['pending', 'delayed']))
+                {{-- delayed = late but never started — still startable --}}
                 <div onclick="event.stopPropagation()">
                     <button class="start-delivery-btn drv-btn" style="margin-top:10px; width:100%;"
                         onclick="startDelivery({{ $s->id }}, '{{ $s->tracking_code }}')">
@@ -711,8 +712,9 @@ async function startDelivery(shipmentId, trackingCode) {
 }
 
 // Disable all Start buttons if any delivery is already in progress
+// (only in_transit counts — delayed means late-but-never-started)
 function updateStartButtons() {
-    const inProgress = document.querySelector('.delivery-item[data-status="in_transit"], .delivery-item[data-status="delayed"]');
+    const inProgress = document.querySelector('.delivery-item[data-status="in_transit"]');
     document.querySelectorAll('.start-delivery-btn').forEach(btn => {
         if (inProgress) {
             btn.disabled            = true;
