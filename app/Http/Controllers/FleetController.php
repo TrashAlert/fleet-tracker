@@ -537,34 +537,34 @@ class FleetController extends Controller
             ['client_email' => $shipment->client_email, 'expected_at' => $shipment->expected_delivery_at]
         );
 
-        $shipment->notify(new ShipmentCreatedNotification($shipment));
+        // Created from a customer shipment request? Approve it — the customer
+        // gets ONE email: ShipmentTicketApprovedNotification (it carries the new
+        // tracking code + link), instead of the generic created email. Only a
+        // still-pending request counts; a stale/reviewed ticket_id degrades to a
+        // normal creation with the normal created email.
+        $ticket = ! empty($data['ticket_id']) ? ShipmentTicket::find($data['ticket_id']) : null;
+        $approving = $ticket && $ticket->status === 'pending';
 
-        // Created from a customer shipment request? Approve it and email the
-        // requester (who is also the new shipment's client, so they received
-        // ShipmentCreatedNotification above with the tracking link).
-        // Only a still-pending request flips — reviewed ones are left untouched.
-        if (! empty($data['ticket_id'])) {
-            $ticket = ShipmentTicket::find($data['ticket_id']);
+        if ($approving) {
+            $ticket->update([
+                'status' => 'approved',
+                'reviewed_by' => auth()->id(),
+                'reviewed_at' => now(),
+                'created_shipment_id' => $shipment->id,
+            ]);
 
-            if ($ticket && $ticket->status === 'pending') {
-                $ticket->update([
-                    'status' => 'approved',
-                    'reviewed_by' => auth()->id(),
-                    'reviewed_at' => now(),
-                    'created_shipment_id' => $shipment->id,
-                ]);
+            $ticket->notify(
+                new ShipmentTicketApprovedNotification($ticket, $shipment)
+            );
 
-                $ticket->notify(
-                    new ShipmentTicketApprovedNotification($ticket, $shipment)
-                );
-
-                ActivityLogger::logEvent(
-                    'ticket_approved',
-                    "Shipment request {$ticket->request_code} approved — shipment {$shipment->tracking_code} created",
-                    'ShipmentTicket', $ticket->id, $ticket->request_code,
-                    ['new_shipment_id' => $shipment->id, 'new_tracking_code' => $shipment->tracking_code]
-                );
-            }
+            ActivityLogger::logEvent(
+                'ticket_approved',
+                "Shipment request {$ticket->request_code} approved — shipment {$shipment->tracking_code} created",
+                'ShipmentTicket', $ticket->id, $ticket->request_code,
+                ['new_shipment_id' => $shipment->id, 'new_tracking_code' => $shipment->tracking_code]
+            );
+        } else {
+            $shipment->notify(new ShipmentCreatedNotification($shipment));
         }
 
         return response()->json([
