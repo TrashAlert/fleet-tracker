@@ -535,7 +535,10 @@ async function fetchDeliveryStatus() {
         const container = document.getElementById('delivery-banners');
 
         // ── Update banners — one per shipment that is near OR recently left ──
-        const bannersNeeded = shipments.filter(s => s.near_destination || s.left_radius_at);
+        // Confirm/left-zone banners belong only to the delivery in progress —
+        // never to pending/delayed stops that happen to be within the radius.
+        const bannersNeeded = shipments.filter(s =>
+            s.status === 'in_transit' && (s.near_destination || s.left_radius_at));
         const neededIds     = bannersNeeded.map(s => 'banner-' + s.shipment_id);
 
         // Remove banners for shipments no longer relevant

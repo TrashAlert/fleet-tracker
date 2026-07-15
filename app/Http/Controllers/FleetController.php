@@ -265,6 +265,9 @@ class FleetController extends Controller
             'destination_lat' => $shipment->destination_lat,
             'destination_lng' => $shipment->destination_lng,
             'expected_delivery_at' => $shipment->expected_delivery_at?->format('Y-m-d H:i'),
+            'delivery_tier_label' => $shipment->delivery_tier
+                ? (config("fleet.delivery_tiers.{$shipment->delivery_tier}.label") ?? ucfirst($shipment->delivery_tier))
+                : null,
             'actual_delivery_at' => $shipment->actual_delivery_at?->format('Y-m-d H:i'),
             'delivery_photo' => $shipment->delivery_photo_url,
             'created_at' => $shipment->created_at->format('Y-m-d H:i'),
@@ -452,7 +455,10 @@ class FleetController extends Controller
                 'distance_metres' => round($distance),
                 'route_distance_metres' => ($route && $route['distance_m'] !== null) ? (int) round($route['distance_m']) : null,
                 'route_eta_minutes' => ($route && $route['duration_s'] !== null) ? (int) round($route['duration_s'] / 60) : null,
-                'near_destination' => $distance <= 200,
+                // Only the delivery actually in progress can be "near" — a
+                // pending/delayed stop that happens to share the area must not
+                // trigger the confirm-photo banner (it can't be confirmed anyway).
+                'near_destination' => $s->status === 'in_transit' && $distance <= 200,
                 'near_destination_at' => $s->near_destination_at?->toIso8601String(),
                 'left_radius_at' => $s->left_radius_at?->toIso8601String(),
                 'delivery_flag_sent' => $s->delivery_flag_sent,
@@ -497,6 +503,8 @@ class FleetController extends Controller
         // Force JSON error responses so the JS fetch can always parse them
         $request->headers->set('Accept', 'application/json');
 
+        $tiers = config('fleet.delivery_tiers', []);
+
         $data = $request->validate([
             'vehicle_id' => 'required|exists:vehicles,id',
             'client_name' => 'required|string|max:255',
@@ -507,10 +515,20 @@ class FleetController extends Controller
             'delivery_notes' => 'nullable|string|max:1000',
             'destination_lat' => 'required|numeric|between:-90,90',
             'destination_lng' => 'required|numeric|between:-180,180',
-            'expected_delivery_at' => 'required|date',
+            // Either a service tier (date computed from config/fleet.php) or an
+            // explicit custom date — the admin form offers both.
+            'delivery_tier' => 'nullable|required_without:expected_delivery_at|in:'.implode(',', array_keys($tiers)),
+            'expected_delivery_at' => 'nullable|required_without:delivery_tier|date',
             // Present when creating from an approved forwarding request
             'ticket_id' => 'nullable|exists:shipment_tickets,id',
         ]);
+
+        // A tier computes the expected date; an explicit date means no tier.
+        if (! empty($data['delivery_tier']) && empty($data['expected_delivery_at'])) {
+            $data['expected_delivery_at'] = now()->addDays((int) $tiers[$data['delivery_tier']]['days']);
+        } elseif (! empty($data['expected_delivery_at'])) {
+            $data['delivery_tier'] = null;
+        }
 
         // Enforce the per-vehicle active shipment cap
         $maxActive = config('fleet.max_active_shipments', 10);
