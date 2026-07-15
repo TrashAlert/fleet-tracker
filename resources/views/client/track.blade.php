@@ -315,6 +315,20 @@
         .fwd-note svg { flex-shrink: 0; margin-top: 1px; color: var(--warning); }
         .fwd-note.success svg { color: var(--success); }
         .fwd-fineprint { font-size: 10px; color: var(--subtle); margin-top: 10px; }
+        .fwd-tiers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .fwd-tier { position: relative; cursor: pointer; }
+        .fwd-tier input { position: absolute; opacity: 0; pointer-events: none; }
+        .fwd-tier-body {
+            display: block; border: 2px solid var(--border); border-radius: 8px;
+            padding: 11px 14px; transition: border-color 0.15s, background 0.15s;
+        }
+        .fwd-tier input:checked + .fwd-tier-body {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 5%, transparent);
+        }
+        .fwd-tier input:focus-visible + .fwd-tier-body { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .fwd-tier-name { display: block; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; }
+        .fwd-tier-days { display: block; font-size: 10px; color: var(--subtle); margin-top: 2px; }
         .fwd-code {
             font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 800;
             letter-spacing: 0.18em; color: var(--accent2); margin-top: 8px;
@@ -423,9 +437,20 @@
                                 <label class="fwd-label" for="fwd-phone">Phone (optional)</label>
                                 <input class="fwd-input" id="fwd-phone" name="client_phone" type="tel" maxlength="20" value="{{ old('client_phone') }}">
                             </div>
-                            <div class="fwd-field">
-                                <label class="fwd-label" for="fwd-date">Preferred delivery date (optional)</label>
-                                <input class="fwd-input" id="fwd-date" name="requested_delivery_at" type="datetime-local" value="{{ old('requested_delivery_at') }}">
+                            <div class="fwd-field full">
+                                <label class="fwd-label">Delivery service</label>
+                                <div class="fwd-tiers">
+                                    @foreach(config('fleet.delivery_tiers') as $tierKey => $tier)
+                                    <label class="fwd-tier">
+                                        <input type="radio" name="delivery_tier" value="{{ $tierKey }}"
+                                               @checked(old('delivery_tier', 'standard') === $tierKey)>
+                                        <span class="fwd-tier-body">
+                                            <span class="fwd-tier-name">{{ $tier['label'] }}</span>
+                                            <span class="fwd-tier-days">arrives within {{ $tier['days'] }} days</span>
+                                        </span>
+                                    </label>
+                                    @endforeach
+                                </div>
                             </div>
                             <div class="fwd-field full">
                                 <label class="fwd-label" for="fwd-address">Delivery address</label>
@@ -515,6 +540,14 @@
                         <span class="info-row-label">To</span>
                         <span class="info-row-value">{{ $shipment->destination_address }}</span>
                     </div>
+                    @if($shipment->delivery_tier)
+                    <div class="info-row">
+                        <span class="info-row-label">Service</span>
+                        <span class="info-row-value">
+                            {{ config("fleet.delivery_tiers.{$shipment->delivery_tier}.label") ?? ucfirst($shipment->delivery_tier) }}
+                        </span>
+                    </div>
+                    @endif
                     <div class="info-row">
                         <span class="info-row-label">Expected Delivery</span>
                         <span class="info-row-value">{{ $shipment->expected_delivery_at->format('d M Y, H:i') }}</span>

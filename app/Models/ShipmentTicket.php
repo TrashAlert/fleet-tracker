@@ -30,14 +30,13 @@ class ShipmentTicket extends Model
         'client_phone',
         'destination_address',
         'delivery_notes',
-        'requested_delivery_at',
+        'delivery_tier',
         'reviewed_by',
         'reviewed_at',
         'created_shipment_id',
     ];
 
     protected $casts = [
-        'requested_delivery_at' => 'datetime',
         'reviewed_at' => 'datetime',
     ];
 

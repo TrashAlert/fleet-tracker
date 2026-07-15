@@ -31,8 +31,15 @@ return [
     // Where is OSRM located
     'osrm_url' => env('OSRM_URL', 'http://localhost:5001'),
 
-
     // Nominatin config
-    'nominatim_url'           => env('NOMINATIM_URL', 'http://localhost:8082'),
+    'nominatim_url' => env('NOMINATIM_URL', 'http://localhost:8082'),
     'nominatim_country_codes' => env('NOMINATIM_COUNTRY_CODES', 'my'),
+
+    // Delivery service tiers offered to customers (and to admins alongside a
+    // "custom date" escape hatch). expected_delivery_at = now() + days.
+    // Add/adjust tiers here — forms and validation render from this list.
+    'delivery_tiers' => [
+        'standard' => ['label' => 'Standard Delivery', 'days' => 5],
+        'express' => ['label' => 'Express Delivery',  'days' => 2],
+    ],
 ];

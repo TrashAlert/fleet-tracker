@@ -34,7 +34,7 @@ class ShipmentTicketController extends Controller
             'client_phone' => 'nullable|string|max:20',
             'destination_address' => 'required|string|max:500',
             'delivery_notes' => 'nullable|string|max:1000',
-            'requested_delivery_at' => 'nullable|date|after:now',
+            'delivery_tier' => 'required|in:'.implode(',', array_keys(config('fleet.delivery_tiers', []))),
         ]);
 
         $ticket = ShipmentTicket::create($data);
@@ -92,7 +92,9 @@ class ShipmentTicketController extends Controller
             'client_phone' => $ticket->client_phone,
             'destination_address' => $ticket->destination_address,
             'delivery_notes' => $ticket->delivery_notes,
-            'requested_delivery_at' => $ticket->requested_delivery_at?->format('Y-m-d\TH:i'),
+            'delivery_tier' => $ticket->delivery_tier,
+            'delivery_tier_label' => config("fleet.delivery_tiers.{$ticket->delivery_tier}.label")
+                ?? ucfirst($ticket->delivery_tier ?? 'standard'),
         ]);
     }
 

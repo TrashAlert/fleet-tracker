@@ -34,6 +34,7 @@ class Shipment extends Model
         'destination_lat',
         'destination_lng',
         'expected_delivery_at',
+        'delivery_tier',
         'actual_delivery_at',
         'status',
         'delay_notified',

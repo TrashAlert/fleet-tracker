@@ -490,8 +490,20 @@
             </div>
 
             <div style="margin-bottom:22px; margin-top:14px;">
-                <label class="sh-label">Expected Delivery</label>
-                <input id="c_expected_at" type="datetime-local" class="sh-input">
+                <label class="sh-label">Delivery Service</label>
+                <select id="c_delivery_tier" class="sh-input" onchange="onTierChange()">
+                    @foreach(config('fleet.delivery_tiers') as $tierKey => $tier)
+                        <option value="{{ $tierKey }}">{{ $tier['label'] }} ({{ $tier['days'] }} days)</option>
+                    @endforeach
+                    <option value="custom">Custom date&hellip;</option>
+                </select>
+                <div id="tierDueHint" style="font-size:10px; color:var(--subtle); margin-top:5px;"></div>
+
+                {{-- Custom-date escape hatch (negotiated/scheduled deliveries) --}}
+                <div id="customDateWrap" style="display:none; margin-top:12px;">
+                    <label class="sh-label">Expected Delivery</label>
+                    <input id="c_expected_at" type="datetime-local" class="sh-input">
+                </div>
             </div>
 
             <div style="display:flex; gap:10px;">
@@ -756,7 +768,8 @@ async function loadDrawer(id) {
     }
 
     // Timing
-    infoBlock('dExpected',  'Expected By', s.expected_delivery_at ?? '—');
+    infoBlock('dExpected',  'Expected By', (s.expected_delivery_at ?? '—')
+        + (s.delivery_tier_label ? ' · ' + s.delivery_tier_label : ''));
     infoBlock('dDelivered', 'Delivered At', s.actual_delivery_at ?? '—');
 
     // Proof of delivery photo (shown only if the driver captured one)
@@ -1176,9 +1189,13 @@ async function prefillFromTicket(id) {
 
         document.getElementById('c_destination_address').value = t.destination_address || '';
         document.getElementById('c_delivery_notes').value      = t.delivery_notes || '';
-        if (t.requested_delivery_at) {
-            document.getElementById('c_expected_at').value = t.requested_delivery_at;
+
+        // Carry the customer's chosen service tier into the form.
+        const tierSel = document.getElementById('c_delivery_tier');
+        if (t.delivery_tier && DELIVERY_TIERS[t.delivery_tier]) {
+            tierSel.value = t.delivery_tier;
         }
+        onTierChange();
 
         // Kick the geocoder so destination candidates appear immediately —
         // the manager still has to pick one (or pin) to set coordinates.
@@ -1193,6 +1210,23 @@ async function prefillFromTicket(id) {
     if (fromTicket) {
         document.addEventListener('DOMContentLoaded', () => prefillFromTicket(fromTicket));
     }
+}
+
+// ── Delivery tier selector (date computed server-side from config) ────────
+const DELIVERY_TIERS = @json(config('fleet.delivery_tiers'));
+
+function onTierChange() {
+    const sel      = document.getElementById('c_delivery_tier');
+    const isCustom = sel.value === 'custom';
+    document.getElementById('customDateWrap').style.display = isCustom ? 'block' : 'none';
+
+    const hint = document.getElementById('tierDueHint');
+    if (isCustom) { hint.textContent = 'Enter the agreed date and time below.'; return; }
+
+    const days = DELIVERY_TIERS[sel.value]?.days ?? 0;
+    const due  = new Date(Date.now() + days * 86400000);
+    hint.textContent = 'Due ' + due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        + ' — computed when the shipment is created.';
 }
 
 // ── Create shipment modal ─────────────────────────────────────────────────
@@ -1219,6 +1253,8 @@ function openCreateModal() {
     document.getElementById('c_destination_address').value = '';
     document.getElementById('c_delivery_notes').value      = '';
     document.getElementById('c_expected_at').value         = '';
+    document.getElementById('c_delivery_tier').selectedIndex = 0;
+    onTierChange();
     hideAddrSuggest();
     setAddrHint('Type to search — picking a result drops the map pin. Clicking the map fills the address back.', false);
     clearMapPin();
@@ -1243,7 +1279,9 @@ async function submitShipment() {
     const lng    = document.getElementById('c_dest_lng').value;
     const origin = document.getElementById('c_origin_address').value
                 || document.getElementById('c_origin').value;
-    const rawDt  = document.getElementById('c_expected_at').value;
+    const tier     = document.getElementById('c_delivery_tier').value;
+    const isCustom = tier === 'custom';
+    const rawDt    = document.getElementById('c_expected_at').value;
 
     if (!document.getElementById('c_vehicle_id').value) {
         return showErr(errDiv, 'Please select a vehicle.');
@@ -1265,12 +1303,13 @@ async function submitShipment() {
             ? 'Please click the map to pin a destination.'
             : 'Please enter both Latitude and Longitude.');
     }
-    if (!rawDt) {
-        return showErr(errDiv, 'Expected delivery date and time is required.');
+    if (isCustom && !rawDt) {
+        return showErr(errDiv, 'Pick the custom expected delivery date and time.');
     }
 
-    // Fix datetime-local → Laravel format (2025-05-20T14:30 → 2025-05-20 14:30:00)
-    const expectedAt = rawDt.replace('T', ' ') + ':00';
+    // Custom date: fix datetime-local → Laravel format (2025-05-20T14:30 → …14:30:00).
+    // Tier: the server computes expected_delivery_at from config at creation time.
+    const expectedAt = isCustom ? rawDt.replace('T', ' ') + ':00' : null;
 
     const body = {
         vehicle_id:           document.getElementById('c_vehicle_id').value,
@@ -1283,6 +1322,7 @@ async function submitShipment() {
         ticket_id:            createTicketId,
         destination_lat:      parseFloat(lat),
         destination_lng:      parseFloat(lng),
+        delivery_tier:        isCustom ? null : tier,
         expected_delivery_at: expectedAt,
     };
 

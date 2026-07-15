@@ -62,7 +62,7 @@
                     <th>Request Code</th>
                     <th>Customer</th>
                     <th>Destination</th>
-                    <th>Preferred Date</th>
+                    <th>Service</th>
                     <th>Status</th>
                     <th style="text-align:center; width:190px;">Actions</th>
                 </tr>
@@ -99,7 +99,9 @@
                         </div>
                         @endif
                     </td>
-                    <td style="font-size:12px;">{{ $ticket->requested_delivery_at?->format('d M Y, H:i') ?? '—' }}</td>
+                    <td style="font-size:12px; {{ $ticket->delivery_tier === 'express' ? 'color:var(--accent2); font-weight:600;' : '' }}">
+                        {{ config("fleet.delivery_tiers.{$ticket->delivery_tier}.label") ?? ucfirst($ticket->delivery_tier ?? 'standard') }}
+                    </td>
                     <td>
                         <span class="pill {{ $pill['class'] }}" id="ticket-pill-{{ $ticket->id }}">{{ $pill['label'] }}</span>
                         @if($ticket->status === 'approved' && $ticket->createdShipment)
