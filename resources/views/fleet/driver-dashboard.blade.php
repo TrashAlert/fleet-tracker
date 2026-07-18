@@ -396,6 +396,11 @@ destMarkers[{{ $s->id }}] = L.marker([{{ $s->destination_lat }}, {{ $s->destinat
 @endif
 @endforeach
 
+// Manifest tour line — the optimized route through the remaining stops,
+// drawn from route_geometry in the delivery-status payload. Absent (null)
+// when OSRM is down or there is at most one free stop.
+let manifestLine = null;
+
 // Tap a delivery card → fly the map to its destination
 function focusDelivery(id) {
     const m = destMarkers[id];
@@ -683,6 +688,21 @@ async function fetchDeliveryStatus() {
         }
 
         document.getElementById('deliveries-count').textContent = shipments.length + ' active';
+
+        // ── Manifest tour line on the map ────────────────────────────────
+        if (data.route_geometry && data.route_geometry.length > 1) {
+            if (manifestLine) {
+                manifestLine.setLatLngs(data.route_geometry);
+            } else {
+                manifestLine = L.polyline(data.route_geometry, {
+                    color: '#00e5ff', weight: 3, opacity: 0.65, dashArray: '7 9',
+                    lineJoin: 'round', lineCap: 'round', smoothFactor: 0.5,
+                }).addTo(map);
+            }
+        } else if (manifestLine) {
+            map.removeLayer(manifestLine);
+            manifestLine = null;
+        }
 
     } catch(e) { setConn(false); console.error('Delivery status error:', e); }
 }

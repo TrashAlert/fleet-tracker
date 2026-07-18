@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Shipment;
+use App\Services\ManifestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -24,7 +26,9 @@ class ClientTrackingController extends Controller
             ])->where('tracking_code', $code)->first();
         }
 
-        return view('client.track', compact('code', 'shipment'));
+        $timeline = $shipment ? $this->timeline($shipment) : [];
+
+        return view('client.track', compact('code', 'shipment', 'timeline'));
     }
 
     /**
@@ -59,9 +63,31 @@ class ClientTrackingController extends Controller
             );
         }
 
+        // Queue position — how many stops the driver visits before this one,
+        // derived from the SAME manifest order the driver dashboard shows
+        // (ManifestService). Null when it can't be derived (OSRM down, no GPS
+        // fix yet, terminal status) — the UI hides the row. Privacy-safe: a
+        // count reveals no vehicle location.
+        $stopsAhead = null;
+        if ($shipment->status === 'in_transit') {
+            $stopsAhead = 0; // the delivery in progress IS the current stop
+        } elseif (in_array($shipment->status, ['pending', 'delayed']) && $shipment->vehicle) {
+            $active = $shipment->vehicle->activeShipments()->get()->values();
+            $idx = $active->search(fn ($s) => $s->id === $shipment->id);
+            $tour = $idx === false
+                ? null
+                : app(ManifestService::class)->tour($shipment->vehicle->latestPosition, $active);
+            if ($tour !== null) {
+                $posInTour = array_search($idx, $tour['order'], true);
+                $stopsAhead = $posInTour === false ? null : $posInTour;
+            }
+        }
+
         return response()->json([
             'status' => $shipment->status,
             'location_hidden' => $locationHidden,
+            'stops_ahead' => $stopsAhead,
+            'timeline' => $this->timeline($shipment),
             'delivered_at' => $shipment->actual_delivery_at?->toIso8601String(),
             'eta' => $eta,
             'vehicle' => $pos ? [
@@ -73,6 +99,87 @@ class ClientTrackingController extends Controller
                 'driver_phone' => $shipment->vehicle?->driver_phone,
             ] : null,
         ]);
+    }
+
+    /**
+     * Client-safe delivery event timeline, oldest first.
+     *
+     * Built from the curated activity_log actions the pipeline writes for a
+     * shipment — internal events (left-zone flags, MQTT noise, audit diffs)
+     * are simply not whitelisted, and log descriptions (which carry plates,
+     * driver names, thresholds) are never exposed: each action maps to a
+     * fixed label. Anchors are synthesized from shipment columns when the
+     * logs are missing (seeders/imports), so the timeline is never empty.
+     *
+     * @return array<int, array{event: string, label: string, at: string, at_display: string}>
+     */
+    private function timeline(Shipment $shipment): array
+    {
+        $labels = [
+            'shipment_created' => 'Shipment created',
+            'shipment_delayed' => 'Delivery delayed',
+            'shipment_started' => 'Out for delivery',
+            'shipment_near_destination' => 'Driver is arriving',
+            'shipment_delivered' => 'Delivered',
+        ];
+
+        $logs = ActivityLog::forSubject('Shipment', (int) $shipment->id)
+            ->whereIn('action', array_merge(array_keys($labels), ['shipment_status_overridden']))
+            ->orderBy('logged_at')
+            ->get();
+
+        $events = [];
+        foreach ($logs as $log) {
+            $action = $log->action;
+            $label = $labels[$action] ?? null;
+
+            // Manual corrections surface as their client-facing outcome — a
+            // revert to pending/delayed is internal housekeeping, not an event.
+            if ($action === 'shipment_status_overridden') {
+                $newStatus = $log->new_values['new_status'] ?? null;
+                $label = match ($newStatus) {
+                    'cancelled' => 'Shipment cancelled',
+                    'delivered' => 'Delivered',
+                    'in_transit' => 'Out for delivery',
+                    default => null,
+                };
+                $action = "shipment_status_overridden:{$newStatus}";
+            }
+
+            if ($label === null) {
+                continue;
+            }
+
+            $events[] = ['event' => $action, 'label' => $label, 'at' => $log->logged_at];
+        }
+
+        $seenLabels = array_column($events, 'label');
+
+        if (! in_array('Shipment created', $seenLabels, true)) {
+            array_unshift($events, ['event' => 'shipment_created', 'label' => 'Shipment created', 'at' => $shipment->created_at]);
+        }
+        if ($shipment->status === 'delivered' && $shipment->actual_delivery_at && ! in_array('Delivered', $seenLabels, true)) {
+            $events[] = ['event' => 'shipment_delivered', 'label' => 'Delivered', 'at' => $shipment->actual_delivery_at];
+        }
+
+        usort($events, fn ($a, $b) => $a['at'] <=> $b['at']);
+
+        // Collapse consecutive repeats (e.g. delivered + a later override to
+        // delivered) and shape for both the Blade render and the JSON poll.
+        $out = [];
+        foreach ($events as $ev) {
+            if ($out !== [] && end($out)['label'] === $ev['label']) {
+                continue;
+            }
+            $out[] = [
+                'event' => $ev['event'],
+                'label' => $ev['label'],
+                'at' => $ev['at']->toIso8601String(),
+                'at_display' => $ev['at']->format('d M Y, H:i'),
+            ];
+        }
+
+        return $out;
     }
 
     /**

@@ -334,6 +334,44 @@
             letter-spacing: 0.18em; color: var(--accent2); margin-top: 8px;
         }
 
+        /* ── Delivery history timeline ── */
+        .timeline-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .timeline-title {
+            font-family: 'Syne', sans-serif;
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 14px;
+        }
+        .tl-item { position: relative; padding: 0 0 16px 24px; }
+        .tl-item::before {
+            content: '';
+            position: absolute;
+            left: 5px; top: 15px; bottom: -1px;
+            width: 2px;
+            background: var(--border);
+        }
+        .tl-item:last-child { padding-bottom: 0; }
+        .tl-item:last-child::before { display: none; }
+        .tl-dot {
+            position: absolute;
+            left: 0; top: 3px;
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: var(--surface);
+            border: 3px solid var(--success);
+        }
+        .tl-item.current .tl-dot { border-color: var(--accent2); }
+        .tl-item.current .tl-label { font-weight: 700; }
+        .tl-label { font-size: 12.5px; }
+        .tl-time { font-size: 10.5px; color: var(--subtle); margin-top: 2px; }
+
         @media (max-width: 768px) {
             .container { padding: 20px; }
             .search-wrap { padding: 20px; }
@@ -552,6 +590,13 @@
                         <span class="info-row-label">Expected Delivery</span>
                         <span class="info-row-value">{{ $shipment->expected_delivery_at->format('d M Y, H:i') }}</span>
                     </div>
+                    {{-- Queue position in the driver's route — filled by the status
+                         poll (stops_ahead); shown only before dispatch, and only
+                         when the manifest order is actually known. --}}
+                    <div class="info-row" id="queue-row" style="display:none;">
+                        <span class="info-row-label">Queue Position</span>
+                        <span class="info-row-value" id="queue-value" style="font-weight:600;">&mdash;</span>
+                    </div>
                     @if($shipment->actual_delivery_at)
                     <div class="info-row">
                         <span class="info-row-label">Delivered At</span>
@@ -615,6 +660,22 @@
                 <div class="privacy-note">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                     <span>For privacy, the vehicle's live position is shown only while your shipment is on the way — not before dispatch or after delivery.</span>
+                </div>
+            </div>
+
+            {{-- Delivery history — curated client-safe events, newest first.
+                 Grid auto-placement puts this under the info panel; the status
+                 poll re-renders the list live. --}}
+            <div class="timeline-card">
+                <div class="timeline-title">Delivery History</div>
+                <div id="timeline-list">
+                    @foreach(array_reverse($timeline) as $ev)
+                    <div class="tl-item {{ $loop->first ? 'current' : '' }}">
+                        <div class="tl-dot"></div>
+                        <div class="tl-label">{{ $ev['label'] }}</div>
+                        <div class="tl-time">{{ $ev['at_display'] }}</div>
+                    </div>
+                    @endforeach
                 </div>
             </div>
 
@@ -848,6 +909,34 @@ async function pollStatus() {
         badge.textContent = data.status.replace(/_/g, ' ');
 
         updateStepper(data.status);
+
+        // Queue position — how many deliveries the driver makes before this
+        // one. Only meaningful before dispatch; null (row hidden) when the
+        // server can't derive the manifest order.
+        const queueRow = document.getElementById('queue-row');
+        if (queueRow) {
+            const showQueue = data.stops_ahead != null
+                && (data.status === 'pending' || data.status === 'delayed');
+            if (showQueue) {
+                document.getElementById('queue-value').textContent =
+                    data.stops_ahead === 0
+                        ? 'You are the next stop'
+                        : data.stops_ahead + (data.stops_ahead === 1 ? ' delivery' : ' deliveries') + ' before yours';
+            }
+            queueRow.style.display = showQueue ? '' : 'none';
+        }
+
+        // Delivery history — re-render newest-first. Labels and timestamps are
+        // fixed server-built strings (never raw log text), safe to inject.
+        const tlList = document.getElementById('timeline-list');
+        if (tlList && Array.isArray(data.timeline)) {
+            tlList.innerHTML = data.timeline.slice().reverse().map((ev, i) => `
+                <div class="tl-item ${i === 0 ? 'current' : ''}">
+                    <div class="tl-dot"></div>
+                    <div class="tl-label">${ev.label}</div>
+                    <div class="tl-time">${ev.at_display}</div>
+                </div>`).join('');
+        }
 
     } catch(e) { setConn(false); console.error(e); }
 }
