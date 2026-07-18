@@ -30,8 +30,17 @@ Route::post('/logout', [LoginController::class, 'logout'])
 | Client Tracking Portal (public — no auth)
 |--------------------------------------------------------------------------
 */
-Route::get('/track', [ClientTrackingController::class, 'index'])->name('client.track');
+// App-level throttles are defense-in-depth behind the nginx tunnel limits
+// (10r/s page, 2r/s API) — generous enough for the 10s status poll and shared
+// NAT IPs, tight enough to matter if a different web server fronts the app.
+// The third throttle arg is a bucket prefix: without it, all guest requests
+// from one IP share a single counter, so the status poll would starve the
+// page's (and the POST's) much smaller budget.
+Route::get('/track', [ClientTrackingController::class, 'index'])
+    ->middleware('throttle:30,1,track-page')
+    ->name('client.track');
 Route::get('/api/track/{trackingCode}/status', [ClientTrackingController::class, 'status'])
+    ->middleware('throttle:120,1,track-status')
     ->name('client.track.status');
 // New-shipment request — the portal's only public write endpoint, so throttled.
 Route::post('/api/track/request', [ShipmentTicketController::class, 'store'])
