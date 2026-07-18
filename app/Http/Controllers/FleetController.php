@@ -172,6 +172,14 @@ class FleetController extends Controller
      */
     public function markAlertRead(Alert $alert): JsonResponse
     {
+        $user = auth()->user();
+
+        // Drivers can only acknowledge their own vehicle's alerts — mirrors
+        // the scoping unreadAlerts applies when listing them
+        if ($user->isDriver() && $user->vehicle_id !== $alert->vehicle_id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
+
         $alert->update(['is_read' => true]);
 
         ActivityLogger::logEvent(
@@ -250,6 +258,14 @@ class FleetController extends Controller
      */
     public function shipmentDetail(Shipment $shipment): JsonResponse
     {
+        $user = auth()->user();
+
+        // Drivers can only view shipments assigned to their own vehicle —
+        // the detail payload carries client PII (same scoping as tripHistory)
+        if ($user->isDriver() && $user->vehicle_id !== $shipment->vehicle_id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
+
         $shipment->load(['vehicle.latestPosition', 'alerts' => fn ($q) => $q->latest()->take(5)]);
 
         return response()->json([
