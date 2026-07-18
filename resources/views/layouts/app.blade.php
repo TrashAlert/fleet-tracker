@@ -16,9 +16,9 @@
     {{-- Leaflet CSS --}}
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-    {{-- Fonts: Syne (display) + JetBrains Mono (data) --}}
+    {{-- Fonts: Syne (display) + JetBrains Mono (data) + Space Grotesk (big numerals) --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 
     <style>
         :root {
@@ -35,6 +35,7 @@
             --danger:    #ef4444;
             --font-display: 'Syne', sans-serif;
             --font-mono:    'JetBrains Mono', monospace;
+            --font-numeric: 'Space Grotesk', sans-serif;  /* stat/count numerals */
         }
 
         /* ── Light theme ── */

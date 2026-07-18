@@ -193,6 +193,14 @@
 
 @push('styles')
 <style>
+    /* Stat numerals in Space Grotesk (page-scoped override of the layout's
+       Syne default; Space Grotesk's max weight is 700) */
+    .stat-value {
+        font-family: var(--font-numeric);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+    }
+
     .perf-window {
         display: flex; align-items: center; gap: 8px;
         margin-bottom: 22px; flex-wrap: wrap;

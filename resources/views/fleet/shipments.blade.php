@@ -600,7 +600,7 @@ html[data-theme="light"] .seg-btn.active { background:rgba(0,119,182,0.10); }
     border-radius:5px; padding:3px 7px;
 }
 .sh-pipe-count {
-    font-family:var(--font-display); font-size:30px; font-weight:800;
+    font-family:var(--font-numeric); font-size:30px; font-weight:700;
     line-height:1; color:var(--sc); margin-bottom:2px;
     font-variant-numeric: tabular-nums;
 }
