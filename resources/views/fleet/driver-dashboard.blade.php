@@ -672,7 +672,8 @@ async function fetchDeliveryStatus() {
             }
         });
 
-        // The server returns shipments nearest-first by road; mirror that order.
+        // The server returns shipments in manifest order (optimized road tour,
+        // current delivery first; nearest-first when OSRM is down) — mirror it.
         const list = document.getElementById('deliveries-list');
         if (list) {
             shipments.forEach(s => {

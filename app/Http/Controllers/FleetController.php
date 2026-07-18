@@ -481,12 +481,70 @@ class FleetController extends Controller
             ];
         });
 
-        // Nearest first by road drive-time; fall back to straight-line if OSRM is unavailable.
-        $shipments = ($routes !== null)
-            ? $shipments->sortBy(fn ($s) => $s['route_eta_minutes'] ?? PHP_INT_MAX)
-            : $shipments->sortBy('distance_metres');
+        // Preferred order: the optimized road tour (OSRM Trip / TSP). Fallbacks
+        // keep the old behavior — nearest first by drive-time, then straight-line.
+        $tourOrder = $this->optimizedTourOrder($pos, $active);
 
-        return response()->json(['shipments' => $shipments->values()]);
+        if ($tourOrder !== null) {
+            $shipments = collect($tourOrder)->map(fn ($i) => $shipments[$i]);
+        } elseif ($routes !== null) {
+            $shipments = $shipments->sortBy(fn ($s) => $s['route_eta_minutes'] ?? PHP_INT_MAX);
+        } else {
+            $shipments = $shipments->sortBy('distance_metres');
+        }
+
+        $shipments = $shipments->values()->map(function (array $s, int $i) {
+            $s['stop_order'] = $i + 1;
+
+            return $s;
+        });
+
+        return response()->json([
+            'shipments' => $shipments,
+            'route_optimized' => $tourOrder !== null,
+        ]);
+    }
+
+    /**
+     * Optimized visit order for a driver's active stops, as 0-based indexes
+     * into the collection. The started (in_transit) delivery is always stop 1 —
+     * the driver is committed to it — and the REMAINING stops are solved as a
+     * road tour starting from ITS destination (or from the truck when nothing
+     * is started). Returns null when there's nothing to optimize (fewer than
+     * two free stops) or OSRM is unavailable — callers fall back to sorting.
+     */
+    private function optimizedTourOrder(GpsTelemetry $pos, $active): ?array
+    {
+        $currentIdx = $active->search(fn ($s) => $s->status === 'in_transit');
+        $rest = array_values(array_filter(
+            $active->keys()->all(),
+            fn ($i) => $i !== $currentIdx
+        ));
+
+        if (count($rest) < 2) {
+            return null;
+        }
+
+        [$startLat, $startLng] = $currentIdx !== false
+            ? [(float) $active[$currentIdx]->destination_lat, (float) $active[$currentIdx]->destination_lng]
+            : [(float) $pos->latitude, (float) $pos->longitude];
+
+        $stops = array_map(
+            fn ($i) => [(float) $active[$i]->destination_lat, (float) $active[$i]->destination_lng],
+            $rest
+        );
+
+        $order = app(OsrmService::class)->trip($startLat, $startLng, $stops);
+        if ($order === null) {
+            return null;
+        }
+
+        $ordered = array_map(fn ($j) => $rest[$j], $order);
+        if ($currentIdx !== false) {
+            array_unshift($ordered, $currentIdx);
+        }
+
+        return $ordered;
     }
 
     /**

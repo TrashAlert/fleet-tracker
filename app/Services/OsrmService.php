@@ -68,6 +68,66 @@ class OsrmService
     }
 
     /**
+     * Optimized visit order for a set of stops via OSRM's Trip service (a TSP
+     * solver): the shortest road tour starting at the source, with no return
+     * leg. Same soft-dependency contract as table(): returns null when OSRM is
+     * unreachable or has no trip — callers then fall back to distance sorting.
+     *
+     * @param  array<int, array{0: float, 1: float}>  $stops  list of [lat, lng]
+     * @return array<int, int>|null 0-based indexes into $stops in visit order
+     */
+    public function trip(float $srcLat, float $srcLng, array $stops): ?array
+    {
+        $base = rtrim((string) config('fleet.osrm_url'), '/');
+        if ($base === '' || count($stops) < 2) {
+            return null;
+        }
+
+        // OSRM coordinates are lng,lat. Source is index 0; stops are 1..N.
+        $coords = ["{$srcLng},{$srcLat}"];
+        foreach ($stops as $s) {
+            $coords[] = "{$s[1]},{$s[0]}";
+        }
+
+        try {
+            $res = Http::timeout(4)->get(
+                "{$base}/trip/v1/driving/".implode(';', $coords),
+                [
+                    'source' => 'first',    // tour starts at the truck / current stop
+                    'roundtrip' => 'false', // no return leg to the source
+                    'overview' => 'false',  // order only — skip the geometry payload
+                ]
+            );
+
+            if (! $res->ok() || ! $res->json('trips.0')) {
+                return null;
+            }
+
+            // waypoints[i] mirrors input coord i; waypoint_index is that
+            // coord's position in the optimized tour. Sort stops (inputs 1..N)
+            // by it to get the visit order.
+            $waypoints = $res->json('waypoints');
+            if (! is_array($waypoints) || count($waypoints) !== count($coords)) {
+                return null;
+            }
+
+            $positions = [];
+            foreach ($stops as $i => $_) {
+                $wp = $waypoints[$i + 1]['waypoint_index'] ?? null;
+                if (! is_numeric($wp)) {
+                    return null;
+                }
+                $positions[$i] = (int) $wp;
+            }
+            asort($positions);
+
+            return array_keys($positions);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
      * Road route between two points via OSRM's Route service: drive-time ETA,
      * distance, and the road geometry as Leaflet-ready [lat, lng] pairs.
      *
