@@ -73,10 +73,15 @@ class OsrmService
      * leg. Same soft-dependency contract as table(): returns null when OSRM is
      * unreachable or has no trip — callers then fall back to distance sorting.
      *
+     * With $withGeometry the tour's road geometry comes back as Leaflet-ready
+     * [lat, lng] pairs (simplified overview — it's a map overview line, not
+     * turn guidance); otherwise geometry is null and the payload stays small.
+     *
      * @param  array<int, array{0: float, 1: float}>  $stops  list of [lat, lng]
-     * @return array<int, int>|null 0-based indexes into $stops in visit order
+     * @return array{order: array<int, int>, geometry: ?array}|null
+     *                                                              order = 0-based indexes into $stops in visit order
      */
-    public function trip(float $srcLat, float $srcLng, array $stops): ?array
+    public function trip(float $srcLat, float $srcLng, array $stops, bool $withGeometry = false): ?array
     {
         $base = rtrim((string) config('fleet.osrm_url'), '/');
         if ($base === '' || count($stops) < 2) {
@@ -95,7 +100,8 @@ class OsrmService
                 [
                     'source' => 'first',    // tour starts at the truck / current stop
                     'roundtrip' => 'false', // no return leg to the source
-                    'overview' => 'false',  // order only — skip the geometry payload
+                    'overview' => $withGeometry ? 'simplified' : 'false',
+                    'geometries' => 'geojson',
                 ]
             );
 
@@ -121,7 +127,19 @@ class OsrmService
             }
             asort($positions);
 
-            return array_keys($positions);
+            // GeoJSON is [lng, lat]; flip to [lat, lng] for Leaflet, ~1 m precision.
+            $geometry = null;
+            if ($withGeometry) {
+                $geometry = [];
+                foreach ($res->json('trips.0.geometry.coordinates') ?? [] as $point) {
+                    if (isset($point[0], $point[1])) {
+                        $geometry[] = [round((float) $point[1], 5), round((float) $point[0], 5)];
+                    }
+                }
+                $geometry = $geometry !== [] ? $geometry : null;
+            }
+
+            return ['order' => array_keys($positions), 'geometry' => $geometry];
         } catch (\Throwable $e) {
             return null;
         }

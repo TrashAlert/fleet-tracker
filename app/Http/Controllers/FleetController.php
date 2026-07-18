@@ -12,6 +12,7 @@ use App\Notifications\DeliveryConfirmedNotification;
 use App\Notifications\ShipmentCreatedNotification;
 use App\Notifications\ShipmentTicketApprovedNotification;
 use App\Services\ActivityLogger;
+use App\Services\ManifestService;
 use App\Services\OsrmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -481,12 +482,13 @@ class FleetController extends Controller
             ];
         });
 
-        // Preferred order: the optimized road tour (OSRM Trip / TSP). Fallbacks
-        // keep the old behavior — nearest first by drive-time, then straight-line.
-        $tourOrder = $this->optimizedTourOrder($pos, $active);
+        // Preferred order: the manifest tour (ManifestService — in_transit stop
+        // first, rest TSP-solved via OSRM). Fallbacks keep the old behavior —
+        // nearest first by drive-time, then straight-line.
+        $tour = app(ManifestService::class)->tour($pos, $active, withGeometry: true);
 
-        if ($tourOrder !== null) {
-            $shipments = collect($tourOrder)->map(fn ($i) => $shipments[$i]);
+        if ($tour !== null) {
+            $shipments = collect($tour['order'])->map(fn ($i) => $shipments[$i]);
         } elseif ($routes !== null) {
             $shipments = $shipments->sortBy(fn ($s) => $s['route_eta_minutes'] ?? PHP_INT_MAX);
         } else {
@@ -501,50 +503,12 @@ class FleetController extends Controller
 
         return response()->json([
             'shipments' => $shipments,
-            'route_optimized' => $tourOrder !== null,
+            'route_optimized' => $tour !== null,
+            // Road geometry of the tour through the remaining stops ([lat,lng]
+            // pairs) — the driver map draws it as the manifest line. Null when
+            // OSRM is down or there's nothing to tour.
+            'route_geometry' => $tour['geometry'] ?? null,
         ]);
-    }
-
-    /**
-     * Optimized visit order for a driver's active stops, as 0-based indexes
-     * into the collection. The started (in_transit) delivery is always stop 1 —
-     * the driver is committed to it — and the REMAINING stops are solved as a
-     * road tour starting from ITS destination (or from the truck when nothing
-     * is started). Returns null when there's nothing to optimize (fewer than
-     * two free stops) or OSRM is unavailable — callers fall back to sorting.
-     */
-    private function optimizedTourOrder(GpsTelemetry $pos, $active): ?array
-    {
-        $currentIdx = $active->search(fn ($s) => $s->status === 'in_transit');
-        $rest = array_values(array_filter(
-            $active->keys()->all(),
-            fn ($i) => $i !== $currentIdx
-        ));
-
-        if (count($rest) < 2) {
-            return null;
-        }
-
-        [$startLat, $startLng] = $currentIdx !== false
-            ? [(float) $active[$currentIdx]->destination_lat, (float) $active[$currentIdx]->destination_lng]
-            : [(float) $pos->latitude, (float) $pos->longitude];
-
-        $stops = array_map(
-            fn ($i) => [(float) $active[$i]->destination_lat, (float) $active[$i]->destination_lng],
-            $rest
-        );
-
-        $order = app(OsrmService::class)->trip($startLat, $startLng, $stops);
-        if ($order === null) {
-            return null;
-        }
-
-        $ordered = array_map(fn ($j) => $rest[$j], $order);
-        if ($currentIdx !== false) {
-            array_unshift($ordered, $currentIdx);
-        }
-
-        return $ordered;
     }
 
     /**
