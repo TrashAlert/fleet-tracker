@@ -13,6 +13,34 @@
 
     <title>Track Your Shipment — FleetTrack</title>
 
+    {{-- Theme is applied BEFORE first paint. Light is the base; the page goes
+         dark when the system prefers dark or the visitor chose dark. With no
+         explicit choice the page FOLLOWS the system live (OS theme changes
+         apply immediately). Toggling to the mode the system already prefers
+         clears the override, returning to auto-follow. --}}
+    <script>
+        (function () {
+            const media = matchMedia('(prefers-color-scheme: dark)');
+            const apply = dark => dark
+                ? document.documentElement.setAttribute('data-theme', 'dark')
+                : document.documentElement.removeAttribute('data-theme');
+
+            const saved = localStorage.getItem('track-theme'); // 'light' | 'dark' | null = auto
+            apply(saved ? saved === 'dark' : media.matches);
+
+            media.addEventListener('change', e => {
+                if (!localStorage.getItem('track-theme')) apply(e.matches);
+            });
+
+            window.toggleTrackTheme = function () {
+                const next = document.documentElement.getAttribute('data-theme') !== 'dark';
+                apply(next);
+                if (next === media.matches) localStorage.removeItem('track-theme');
+                else localStorage.setItem('track-theme', next ? 'dark' : 'light');
+            };
+        })();
+    </script>
+
     {{-- SECURITY: Subresource Integrity pins the exact Leaflet build — a
          compromised CDN cannot execute arbitrary JS on this public page.
          (Hashes are the official Leaflet 1.9.4 values from leafletjs.com.) --}}
@@ -27,11 +55,25 @@
             --border: #e2e0d8;
             --text: #1a1a1a;
             --subtle: #6b6b6b;
-            --accent: #1a1a2e;
+            --accent: #1a1a2e;   /* dark navy FILL (header, panels, solid button) */
+            --link: #1a1a2e;     /* accent as TEXT/BORDER (links, focus rings) —
+                                    same as --accent in light, but must go LIGHT
+                                    in dark mode, so it's a separate variable */
             --accent2: #ff6b35;
             --success: #16a34a;
             --warning: #d97706;
             --danger: #dc2626;
+        }
+
+        /* ── Dark theme (data-theme set pre-paint by the head script) ── */
+        html[data-theme="dark"] {
+            --bg: #0e0f12;
+            --surface: #15171c;
+            --border: #262a33;
+            --text: #e8eaf0;
+            --subtle: #8b93a3;
+            --accent: #232842;   /* lighter navy so panels separate from surface */
+            --link: #00e5ff;     /* fleet cyan — readable accent on dark */
         }
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -60,6 +102,17 @@
             letter-spacing: -0.5px;
         }
         .wordmark span { color: #fff; font-weight: 400; font-size: 13px; margin-left: 10px; }
+        /* Theme toggle — sits on the always-dark header, so fixed light colors.
+           Shows the mode you'd switch TO: moon in light mode, sun in dark. */
+        .theme-btn {
+            background: none; border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #fff; border-radius: 8px; padding: 7px 9px;
+            display: inline-flex; align-items: center; cursor: pointer;
+        }
+        .theme-btn:hover { border-color: rgba(255, 255, 255, 0.6); }
+        .theme-btn .icon-sun { display: none; }
+        html[data-theme="dark"] .theme-btn .icon-sun  { display: block; }
+        html[data-theme="dark"] .theme-btn .icon-moon { display: none; }
 
         /* ── Search ── */
         .search-wrap {
@@ -89,54 +142,102 @@
             outline: none;
             transition: border-color 0.15s;
         }
-        .search-input:focus { border-color: var(--accent); }
-        /* ── GlareHover (React Bits) — CSS-only port, applied directly to the
-              button. The React wrapper only computed CSS variables, so the
-              effect transfers verbatim: an angled cyan glare sweeps corner to
-              corner. Also fires on :active (touch) and :focus-visible (keys). ── */
-        .search-btn {
-            --gh-angle: -45deg;
-            --gh-duration: 650ms;
-            --gh-size: 250%;
-            --gh-rgba: rgba(0, 229, 255, 0.35);   /* fleet cyan glare */
+        .search-input:focus { border-color: var(--link); }
+        /* ── AnimatedButton (framer-motion) — CSS-only port, used by every
+              action button on this page (Track + request-form Submit; it fully
+              replaced the earlier GlareHover port). Three effects from the
+              original, no JS: a springy hover/tap scale (whileHover 1.01 /
+              whileTap 0.97), a shine sweep masked over the label (animated
+              --mask-x, needs @property; degrades to a plain visible label
+              where unsupported), and a border shine ring built with the same
+              XOR mask-composite trick. Cycle matches the original: 1s sweep +
+              1s repeatDelay = 2s loop. ── */
+        @property --mask-x {
+            syntax: '<percentage>';
+            inherits: false;
+            initial-value: 100%;
+        }
+        .animated-btn {
+            /* Light mode: the component's DARK variant (bg-black, border #222,
+               white shine) — a black button is far more visible on the light
+               page than the bordered-surface look. */
+            --shine: rgba(255, 255, 255, .66);
             position: relative;
             overflow: hidden;
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            padding: 11px 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 11px 24px;
             border-radius: 8px;
+            background: #000;
+            border: 1px solid #222;
+            color: #fff;
             font-family: 'JetBrains Mono', monospace;
             font-size: 13px;
+            letter-spacing: 0.05em;
             cursor: pointer;
+            transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1); /* spring-ish */
+        }
+        /* Solid variant — keeps the request-form Submit button's previous
+           color scheme (accent bg, white text). --shine flips to the
+           component's dark-mode value so the sweeps read on the dark bg. */
+        .animated-btn.solid {
+            --shine: rgba(255, 255, 255, .66);
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .animated-btn:hover  { transform: scale(1.01); }
+        .animated-btn:active { transform: scale(0.97); }
+        .animated-btn:focus-visible { outline: 1px solid var(--link); outline-offset: 2px; }
+        /* Dark mode: BOTH buttons (Track and .solid Submit) flip to white —
+           the component's light variant. Specificity (html[attr] + class)
+           deliberately beats .animated-btn.solid so the accent fill yields. */
+        html[data-theme="dark"] .animated-btn {
+            --shine: rgba(0, 0, 0, .66);
+            background: #f5f5f5;
+            border-color: #e2e2e2;
+            color: #111114;
+        }
+        .animated-btn:disabled { pointer-events: none; opacity: .5; }
+        .animated-btn-label {
+            position: relative;
+            z-index: 1;
             display: inline-flex;
             align-items: center;
             gap: 8px;
+            -webkit-mask-image: linear-gradient(-75deg, #fff calc(var(--mask-x) + 20%), transparent calc(var(--mask-x) + 30%), #fff calc(var(--mask-x) + 100%));
+            mask-image: linear-gradient(-75deg, #fff calc(var(--mask-x) + 20%), transparent calc(var(--mask-x) + 30%), #fff calc(var(--mask-x) + 100%));
+            animation: animated-btn-mask 2s linear infinite;
         }
-        .search-btn::before {
-            content: '';
+        @keyframes animated-btn-mask {
+            0%   { --mask-x: 100%; }
+            50%  { --mask-x: -100%; }
+            100% { --mask-x: -100%; }  /* hold = the original's repeatDelay: 1 */
+        }
+        .animated-btn-ring {
             position: absolute;
             inset: 0;
-            background: linear-gradient(
-                var(--gh-angle),
-                hsla(0, 0%, 0%, 0) 60%,
-                var(--gh-rgba) 70%,
-                hsla(0, 0%, 0%, 0),
-                hsla(0, 0%, 0%, 0) 100%
-            );
-            background-size: var(--gh-size) var(--gh-size), 100% 100%;
-            background-repeat: no-repeat;
-            background-position: -100% -100%, 0 0;
-            transition: background-position var(--gh-duration) ease;
+            border-radius: 8px;
+            padding: 1px;
+            background: linear-gradient(-75deg, transparent 30%, var(--shine) 50%, transparent 70%);
+            background-size: 200% 100%;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            animation: animated-btn-ring 2s linear infinite;
             pointer-events: none;
         }
-        .search-btn:hover::before,
-        .search-btn:focus-visible::before,
-        .search-btn:active::before {
-            background-position: 100% 100%, 0 0;
+        @keyframes animated-btn-ring {
+            0%   { background-position: 100% 0; opacity: 0; }
+            25%  { opacity: 1; }
+            50%  { background-position: 0% 0;   opacity: 0; }
+            100% { background-position: 0% 0;   opacity: 0; }
         }
+
         @media (prefers-reduced-motion: reduce) {
-            .search-btn::before { transition: none; }
+            .animated-btn, .animated-btn-label, .animated-btn-ring { animation: none; transition: none; }
         }
 
         /* ── Layout ── */
@@ -235,6 +336,10 @@
         /* z-index containment: nothing inside the map can paint above page chrome */
         .map-wrap { position: relative; z-index: 0; }
         #client-map { height: 500px; }
+        /* Dark mode: same class-scoped tile filter as the fleet pages; light
+           mode renders tiles unfiltered (the page's default). */
+        html[data-theme="dark"] .leaflet-tile-pane { filter: brightness(0.65) saturate(0.7) hue-rotate(185deg); }
+        html[data-theme="dark"] .leaflet-container { background: #0e0f12; }
 
         .live-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--success); }
         .live-dot::before {
@@ -300,7 +405,7 @@
             color: var(--text); outline: none; transition: border-color 0.15s;
             width: 100%;
         }
-        .fwd-input:focus { border-color: var(--accent); }
+        .fwd-input:focus { border-color: var(--link); }
         textarea.fwd-input { resize: vertical; min-height: 60px; }
         .fwd-errors {
             background: rgba(220, 53, 69, 0.08); border: 1px solid rgba(220, 53, 69, 0.3);
@@ -323,10 +428,10 @@
             padding: 11px 14px; transition: border-color 0.15s, background 0.15s;
         }
         .fwd-tier input:checked + .fwd-tier-body {
-            border-color: var(--accent);
-            background: color-mix(in srgb, var(--accent) 5%, transparent);
+            border-color: var(--link);
+            background: color-mix(in srgb, var(--link) 5%, transparent);
         }
-        .fwd-tier input:focus-visible + .fwd-tier-body { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .fwd-tier input:focus-visible + .fwd-tier-body { outline: 2px solid var(--link); outline-offset: 2px; }
         .fwd-tier-name { display: block; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; }
         .fwd-tier-days { display: block; font-size: 10px; color: var(--subtle); margin-top: 2px; }
         .fwd-code {
@@ -390,6 +495,10 @@
     <div>
         <div class="wordmark">FleetTrack <span>/ Shipment Tracker</span></div>
     </div>
+    <button class="theme-btn" type="button" onclick="toggleTrackTheme()" aria-label="Toggle light/dark theme">
+        <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
 </header>
 
 <div class="search-wrap">
@@ -401,9 +510,12 @@
                    pattern="[A-Za-z0-9]{10}" inputmode="text" spellcheck="false"
                    title="Tracking codes are 10 letters and numbers"
                    aria-label="Tracking code">
-            <button class="search-btn" type="submit">
-                Track
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            <button class="animated-btn" type="submit">
+                <span class="animated-btn-label">
+                    Track
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </span>
+                <span class="animated-btn-ring" aria-hidden="true"></span>
             </button>
         </div>
     </form>
@@ -502,9 +614,12 @@
                             </div>
                         </div>
                         <div style="margin-top:16px;">
-                            <button class="search-btn" type="submit">
-                                Submit Request
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                            <button class="animated-btn solid" type="submit">
+                                <span class="animated-btn-label">
+                                    Submit Request
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                                </span>
+                                <span class="animated-btn-ring" aria-hidden="true"></span>
                             </button>
                             <p class="fwd-fineprint">You'll be emailed if your request is approved.</p>
                         </div>
@@ -635,7 +750,7 @@
                         <span class="info-row-value">
                             <a href="tel:{{ $shipment->vehicle->driver_phone }}"
                                 id="driver-phone"
-                                style="color:var(--accent); text-decoration:none; font-weight:600;">
+                                style="color:var(--link); text-decoration:none; font-weight:600;">
                                 {{ $shipment->vehicle->driver_phone }}
                             </a>
                         </span>

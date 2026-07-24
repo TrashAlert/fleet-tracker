@@ -155,11 +155,11 @@ class ClientTrackingController extends Controller
 
         $seenLabels = array_column($events, 'label');
 
-        if (! in_array('Shipment created', $seenLabels, true)) {
-            array_unshift($events, ['event' => 'shipment_created', 'label' => 'Shipment created', 'at' => $shipment->created_at]);
+        if (! in_array($labels['shipment_created'], $seenLabels, true)) {
+            array_unshift($events, ['event' => 'shipment_created', 'label' => $labels['shipment_created'], 'at' => $shipment->created_at]);
         }
-        if ($shipment->status === 'delivered' && $shipment->actual_delivery_at && ! in_array('Delivered', $seenLabels, true)) {
-            $events[] = ['event' => 'shipment_delivered', 'label' => 'Delivered', 'at' => $shipment->actual_delivery_at];
+        if ($shipment->status === 'delivered' && $shipment->actual_delivery_at && ! in_array($labels['shipment_delivered'], $seenLabels, true)) {
+            $events[] = ['event' => 'shipment_delivered', 'label' => $labels['shipment_delivered'], 'at' => $shipment->actual_delivery_at];
         }
 
         usort($events, fn ($a, $b) => $a['at'] <=> $b['at']);
