@@ -105,6 +105,7 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
     Route::get('/api/delivery-status', [FleetController::class, 'deliveryStatus'])->name('api.delivery.status');
     Route::post('/api/shipments/{shipment}/start-delivery', [FleetController::class, 'startDelivery'])->name('api.shipment.start');
     Route::post('/api/shipments/{shipment}/confirm-delivery', [FleetController::class, 'confirmDelivery'])->name('api.shipment.confirm');
+    Route::post('/api/shipments/{shipment}/fail-delivery', [FleetController::class, 'failDelivery'])->name('api.shipment.fail');
 
     // ── Activity Log (admin + manager) ────────────────────────────────────
     Route::middleware('role:admin,manager')->group(function () {

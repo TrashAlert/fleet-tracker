@@ -121,10 +121,11 @@ class ClientTrackingController extends Controller
             'shipment_started' => 'Out for delivery',
             'shipment_near_destination' => 'Driver is arriving',
             'shipment_delivered' => 'Delivered',
+            'shipment_returned' => 'Returned to sender',
         ];
 
         $logs = ActivityLog::forSubject('Shipment', (int) $shipment->id)
-            ->whereIn('action', array_merge(array_keys($labels), ['shipment_status_overridden']))
+            ->whereIn('action', array_merge(array_keys($labels), ['shipment_status_overridden', 'shipment_delivery_failed']))
             ->orderBy('logged_at')
             ->get();
 
@@ -144,6 +145,19 @@ class ClientTrackingController extends Controller
                     default => null,
                 };
                 $action = "shipment_status_overridden:{$newStatus}";
+            }
+
+            // Each failed attempt is its own timestamped event; the attempt
+            // number keeps the label unique so two identical reasons aren't
+            // merged by the consecutive-dedup below. reason_label is the
+            // client-safe config label recorded on the log.
+            if ($log->action === 'shipment_delivery_failed') {
+                $attempt = $log->new_values['attempt'] ?? null;
+                $reasonLabel = $log->new_values['reason_label'] ?? 'Delivery could not be completed';
+                $label = $attempt
+                    ? "Delivery attempt {$attempt} — {$reasonLabel}"
+                    : "Delivery attempted — {$reasonLabel}";
+                $action = "shipment_delivery_failed:{$attempt}";
             }
 
             if ($label === null) {

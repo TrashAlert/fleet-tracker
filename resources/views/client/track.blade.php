@@ -643,6 +643,7 @@
                 'delayed'    => 'status-delayed',
                 'delivered'  => 'status-delivered',
                 'cancelled'  => 'status-pending',
+                'returned'   => 'status-pending',
                 default      => 'status-pending',
             };
         @endphp
@@ -817,7 +818,7 @@ const DEST_LNG = {{ $shipment->destination_lng }};
     // variables — Blade can choke on in_array(..., [...]) inside @json().
     // delayed = late but never started, so it counts as "not yet dispatched".
     $locationHidden     = $shipment->status !== 'in_transit';
-    $isTerminal         = in_array($shipment->status, ['delivered', 'cancelled']);
+    $isTerminal         = in_array($shipment->status, ['delivered', 'cancelled', 'returned']);
     $isPending          = in_array($shipment->status, ['pending', 'delayed']);
     $deliveredAtIso     = $shipment->actual_delivery_at?->toIso8601String();
     $showInitialVehicle = $shipment->vehicle->latestPosition && ! $locationHidden;
@@ -931,6 +932,9 @@ function updateStepper(status) {
     } else if (status === 'cancelled') {
         delivered.className = 'step cancel';
         document.getElementById('step-delivered-label').textContent = 'Cancelled';
+    } else if (status === 'returned') {
+        delivered.className = 'step cancel';
+        document.getElementById('step-delivered-label').textContent = 'Returned';
     } else {
         // pending — nothing beyond "order received"
         document.getElementById('step-transit-sub').textContent = 'awaiting dispatch';
@@ -967,7 +971,7 @@ async function pollStatus() {
         const data = await res.json();
         setConn(true);
 
-        if (data.status === 'delivered' || data.status === 'cancelled') {
+        if (data.status === 'delivered' || data.status === 'cancelled' || data.status === 'returned') {
             // Terminal — stop tracking and switch the card out of live mode.
             applyDeliveredState(data);
         } else if (data.location_hidden) {
@@ -1019,7 +1023,7 @@ async function pollStatus() {
 
         // Update status badge — className swap keeps the ::before dot
         const badge    = document.getElementById('status-badge');
-        const classMap = { 'in_transit':'status-transit', 'delayed':'status-delayed', 'delivered':'status-delivered', 'pending':'status-pending', 'cancelled':'status-pending' };
+        const classMap = { 'in_transit':'status-transit', 'delayed':'status-delayed', 'delivered':'status-delivered', 'pending':'status-pending', 'cancelled':'status-pending', 'returned':'status-pending' };
         badge.className = 'status-badge ' + (classMap[data.status] ?? 'status-pending');
         badge.textContent = data.status.replace(/_/g, ' ');
 
@@ -1072,7 +1076,7 @@ function applyDeliveredState(data) {
     if (vehicleMarker) { map.removeLayer(vehicleMarker); vehicleMarker = null; }
     clearRoute();
 
-    const cancelled = (data && data.status === 'cancelled') || IS_CANCELLED;
+    const cancelled = (data && (data.status === 'cancelled' || data.status === 'returned')) || IS_CANCELLED;
 
     const liveDot = document.getElementById('live-indicator');
     if (liveDot) liveDot.style.display = 'none';

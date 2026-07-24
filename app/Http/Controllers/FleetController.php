@@ -8,7 +8,9 @@ use App\Models\Shipment;
 use App\Models\ShipmentTicket;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Notifications\DeliveryAttemptedNotification;
 use App\Notifications\DeliveryConfirmedNotification;
+use App\Notifications\DeliveryReturnedNotification;
 use App\Notifications\ShipmentCreatedNotification;
 use App\Notifications\ShipmentTicketApprovedNotification;
 use App\Services\ActivityLogger;
@@ -448,6 +450,109 @@ class FleetController extends Controller
     }
 
     /**
+     * Driver reports a FAILED delivery attempt (recipient absent, wrong address,
+     * refused, …). Unlike confirmDelivery there is deliberately NO 200 m radius
+     * check — a driver can discover "wrong address" anywhere. A non-final attempt
+     * reverts in_transit → pending (freeing the vehicle and re-queuing the stop);
+     * the final attempt (cap reached) returns the shipment to sender (terminal).
+     */
+    public function failDelivery(Request $request, Shipment $shipment): JsonResponse
+    {
+        $user = auth()->user();
+
+        // Only the driver of this vehicle can report on it
+        if ($user->isDriver() && $user->vehicle_id !== $shipment->vehicle_id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
+
+        $reasons = config('fleet.delivery_failure_reasons', []);
+        $data = $request->validate([
+            'reason' => 'required|in:'.implode(',', array_keys($reasons)),
+        ]);
+
+        // Evidence photo is optional here (a failed attempt is legitimate with
+        // or without one); when present it uses the confirm photo's limits.
+        $photo = $request->file('photo');
+        if ($photo) {
+            if (! $photo->isValid() || ! str_starts_with((string) $photo->getMimeType(), 'image/')) {
+                return response()->json(['error' => 'The uploaded file must be a valid image.'], 422);
+            }
+            if ($photo->getSize() > 8 * 1024 * 1024) {
+                return response()->json(['error' => 'The photo is too large (max 8 MB).'], 422);
+            }
+        }
+
+        // Serialize on the vehicle lock — a failed attempt frees the in_transit
+        // slot, so it races with start/confirm the same way (see startDelivery).
+        return DB::transaction(function () use ($shipment, $user, $reasons, $data, $photo) {
+            Vehicle::whereKey($shipment->vehicle_id)->lockForUpdate()->first();
+            $shipment->refresh();
+
+            // Only a started delivery can be attempted (pending/delayed was never dispatched).
+            if ($shipment->status !== 'in_transit') {
+                return response()->json(['error' => 'Only a started delivery can be reported as failed.'], 422);
+            }
+
+            $photoPath = $shipment->last_attempt_photo_path;
+            if ($photo) {
+                ini_set('memory_limit', '512M');
+                $manager = ImageManager::usingDriver(Driver::class);
+                $image = $manager->decode($photo->getRealPath())->scaleDown(width: 1280, height: 1280);
+                $encoded = $image->encodeUsingFormat(Format::JPEG, quality: 75);
+                $photoPath = 'delivery-proofs/'.Str::uuid().'.jpg';
+                Storage::disk('public')->put($photoPath, (string) $encoded);
+            }
+
+            $attempts = $shipment->delivery_attempts + 1;
+            $max = (int) config('fleet.max_delivery_attempts', 3);
+            $exhausted = $attempts >= $max;
+            $reasonLabel = $reasons[$data['reason']] ?? $data['reason'];
+
+            $shipment->update([
+                // Non-final attempts revert to pending (re-queued, vehicle freed);
+                // the final one returns to sender (terminal).
+                'status' => $exhausted ? 'returned' : 'pending',
+                'delivery_attempts' => $attempts,
+                'last_attempt_at' => now(),
+                'last_attempt_reason' => $data['reason'],
+                'last_attempt_photo_path' => $photoPath,
+                // Reset radius state so the next attempt starts clean.
+                'near_destination_at' => null,
+                'left_radius_at' => null,
+                'delivery_flag_sent' => false,
+            ]);
+
+            ActivityLogger::logEvent(
+                'shipment_delivery_failed',
+                "Delivery attempt {$attempts} of {$max} failed for shipment {$shipment->tracking_code}: {$reasonLabel} (driver {$user->name})",
+                'Shipment', $shipment->id, $shipment->tracking_code,
+                ['reason' => $data['reason'], 'reason_label' => $reasonLabel, 'attempt' => $attempts, 'max' => $max],
+                ['causer_type' => 'web', 'causer_label' => $user->name]
+            );
+
+            if ($exhausted) {
+                ActivityLogger::logEvent(
+                    'shipment_returned',
+                    "Shipment {$shipment->tracking_code} returned to sender after {$attempts} failed attempts",
+                    'Shipment', $shipment->id, $shipment->tracking_code,
+                    ['attempts' => $attempts],
+                    ['causer_type' => 'web', 'causer_label' => $user->name]
+                );
+                $shipment->notify(new DeliveryReturnedNotification($shipment));
+            } else {
+                $shipment->notify(new DeliveryAttemptedNotification($shipment, $reasonLabel, $max - $attempts));
+            }
+
+            return response()->json([
+                'ok' => true,
+                'status' => $shipment->status,
+                'attempts' => $attempts,
+                'remaining' => max(0, $max - $attempts),
+            ]);
+        });
+    }
+
+    /**
      * Delivery status for driver dashboard polling — checks if near destination.
      */
     public function deliveryStatus(): JsonResponse
@@ -533,7 +638,7 @@ class FleetController extends Controller
     public function updateShipmentStatus(Request $request, Shipment $shipment): JsonResponse
     {
         $data = $request->validate([
-            'status' => 'required|in:pending,in_transit,delayed,delivered,cancelled',
+            'status' => 'required|in:pending,in_transit,delayed,delivered,cancelled,returned',
         ]);
 
         $old = $shipment->status;

@@ -42,6 +42,10 @@ class Shipment extends Model
         'left_radius_at',
         'delivery_flag_sent',
         'delivery_photo_path',
+        'delivery_attempts',
+        'last_attempt_at',
+        'last_attempt_reason',
+        'last_attempt_photo_path',
     ];
 
     protected $casts = [
@@ -53,6 +57,8 @@ class Shipment extends Model
         'near_destination_at' => 'datetime',
         'left_radius_at' => 'datetime',
         'delivery_flag_sent' => 'boolean',
+        'delivery_attempts' => 'integer',
+        'last_attempt_at' => 'datetime',
     ];
 
     protected static function boot(): void

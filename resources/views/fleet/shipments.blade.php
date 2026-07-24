@@ -44,6 +44,10 @@
             'label' => 'Cancelled', 'color' => 'var(--danger)',
             'icon'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
         ],
+        'returned' => [
+            'label' => 'Returned', 'color' => 'var(--warning)',
+            'icon'  => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
+        ],
     ];
     $qsWithout = fn ($key) => '?' . http_build_query(array_filter(request()->except($key, 'page')));
 @endphp
@@ -126,6 +130,7 @@
                         'delayed'    => ['pill-class' => 'pill-delayed',   'label' => 'Delayed'],
                         'delivered'  => ['pill-class' => 'pill-delivered', 'label' => 'Delivered'],
                         'cancelled'  => ['pill-class' => 'pill-offline',   'label' => 'Cancelled'],
+                        'returned'   => ['pill-class' => 'pill-delayed',   'label' => 'Returned'],
                         default      => ['pill-class' => '',               'label' => $shipment->status],
                     };
                     $isOverdue = $shipment->status === 'in_transit'
@@ -157,6 +162,9 @@
                     </td>
                     <td>
                         <span class="pill {{ $statusStyle['pill-class'] }}">{{ $statusStyle['label'] }}</span>
+                        @if($shipment->delivery_attempts > 0)
+                        <div style="font-size:9px; color:var(--subtle); margin-top:3px;">{{ $shipment->delivery_attempts }} attempt{{ $shipment->delivery_attempts === 1 ? '' : 's' }}</div>
+                        @endif
                     </td>
                     <td style="text-align:center;" onclick="event.stopPropagation()">
                         <div style="display:flex; gap:5px; justify-content:center;">

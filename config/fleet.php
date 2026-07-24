@@ -23,6 +23,11 @@ return [
     // Maximum active (pending/in_transit/delayed) shipments per vehicle
     'max_active_shipments' => env('FLEET_MAX_ACTIVE_SHIPMENTS', 20),
 
+    // Failed-delivery: how many door attempts before a shipment is returned to
+    // sender (terminal). Each failed attempt below this reverts in_transit →
+    // pending so the vehicle is freed and the stop is re-queued.
+    'max_delivery_attempts' => env('FLEET_MAX_DELIVERY_ATTEMPTS', 3),
+
     // Seconds of GPS silence before an offline ALERT is raised
     // (separate from gps_stale_timeout_seconds which only affects the
     //  dashboard online/offline pill — brief tunnel drops shouldn't alert)
@@ -41,5 +46,17 @@ return [
     'delivery_tiers' => [
         'standard' => ['label' => 'Standard Delivery', 'days' => 5],
         'express' => ['label' => 'Express Delivery',  'days' => 2],
+    ],
+
+    // Reasons a driver can give when a delivery attempt fails. The key is stored
+    // (last_attempt_reason); the label is shown to the driver AND surfaced on the
+    // public tracking timeline, so keep labels customer-appropriate. Forms and
+    // validation render from this list — add/adjust reasons here.
+    'delivery_failure_reasons' => [
+        'recipient_absent' => 'Recipient unavailable',
+        'address_incorrect' => 'Address incorrect or not found',
+        'refused' => 'Recipient refused delivery',
+        'access_blocked' => 'Could not access the location',
+        'damaged' => 'Parcel damaged in transit',
     ],
 ];

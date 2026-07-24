@@ -160,6 +160,36 @@
                     </button>
                 </div>
                 @endif
+
+                @if($s->status === 'in_transit')
+                {{-- Report a failed attempt — available zone-free (a driver can
+                     discover a wrong address anywhere), unlike photo-confirm. --}}
+                <div onclick="event.stopPropagation()">
+                    <button type="button" class="drv-btn" style="margin-top:10px; width:100%; color:var(--warning); border-color:var(--warning);"
+                        onclick="toggleFailForm({{ $s->id }})">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        Couldn't deliver
+                    </button>
+                    <div id="fail-form-{{ $s->id }}" style="display:none; margin-top:8px; padding:12px; border:1px solid var(--border); border-radius:8px;">
+                        <label style="display:block; font-size:9px; text-transform:uppercase; letter-spacing:0.08em; color:var(--subtle); margin-bottom:4px;">Reason</label>
+                        <select id="fail-reason-{{ $s->id }}" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-family:var(--font-mono); font-size:12px; outline:none;">
+                            @foreach(config('fleet.delivery_failure_reasons') as $reasonKey => $reasonLabel)
+                            <option value="{{ $reasonKey }}">{{ $reasonLabel }}</option>
+                            @endforeach
+                        </select>
+                        <label class="drv-btn" style="margin-top:8px; width:100%; cursor:pointer;">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            <span id="fail-photo-label-{{ $s->id }}">Add photo (optional)</span>
+                            <input type="file" accept="image/*" capture="environment" id="fail-photo-{{ $s->id }}" style="display:none;"
+                                onchange="document.getElementById('fail-photo-label-{{ $s->id }}').textContent = this.files[0] ? 'Photo attached' : 'Add photo (optional)'">
+                        </label>
+                        <button type="button" class="drv-btn" style="margin-top:8px; width:100%; background:var(--warning); color:#000; border:none; font-weight:700;"
+                            onclick="failDelivery({{ $s->id }}, this)">
+                            Submit report
+                        </button>
+                    </div>
+                </div>
+                @endif
             </div>
             @empty
             <div style="text-align:center; padding:24px 0; color:var(--subtle); font-size:12px;">
@@ -749,6 +779,48 @@ function updateStartButtons() {
     });
 }
 updateStartButtons();
+
+// ── Report a failed delivery attempt (per shipment, zone-free) ────────────
+function toggleFailForm(shipmentId) {
+    const form = document.getElementById('fail-form-' + shipmentId);
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function failDelivery(shipmentId, btn) {
+    const reason = document.getElementById('fail-reason-' + shipmentId)?.value;
+    if (!reason) return;
+    if (!confirm("Report this delivery as failed? The customer will be notified.")) return;
+
+    const original = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+
+    try {
+        const fd = new FormData();
+        fd.append('reason', reason);
+        const photo = document.getElementById('fail-photo-' + shipmentId)?.files?.[0];
+        if (photo) fd.append('photo', photo);
+
+        const res  = await fetch(`/fleet/api/shipments/${shipmentId}/fail-delivery`, {
+            method:  'POST',
+            headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF },
+            body: fd,
+        });
+        const json = await res.json();
+
+        if (!res.ok) {
+            alert(json.error || 'Could not submit the report. Please try again.');
+            return;
+        }
+
+        if ('vibrate' in navigator) { try { navigator.vibrate(80); } catch(e) {} }
+        // Reload to reflect the new status (re-queued to pending, or returned to sender).
+        location.reload();
+    } catch(e) {
+        alert('Network error — please try again.');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = original; }
+    }
+}
 
 // ── Confirm delivery (per shipment) ───────────────────────────────────────
 async function confirmDelivery(shipmentId, input) {
