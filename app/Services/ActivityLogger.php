@@ -44,6 +44,23 @@ class ActivityLogger
             $old = $model->getAttributes();
         }
 
+        // Redact model-declared sensitive fields on BOTH sides of the diff, for
+        // every action. Centralised here (the single choke point for model
+        // logging) because the per-event trait hooks previously skipped the
+        // created payload entirely and only redacted the updated OLD value —
+        // leaking password hashes and remember_token into the audit trail. The
+        // key is kept (value → '***') so the fact-of-change stays visible.
+        if (method_exists($model, 'getLoggableHidden')) {
+            foreach ($model->getLoggableHidden() as $field) {
+                if (array_key_exists($field, $old)) {
+                    $old[$field] = '***';
+                }
+                if (array_key_exists($field, $new)) {
+                    $new[$field] = '***';
+                }
+            }
+        }
+
         $description ??= self::buildDescription($subjectType, $subjectLabel, $action, $old, $new);
 
         self::write([

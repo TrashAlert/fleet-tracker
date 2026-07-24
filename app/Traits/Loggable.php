@@ -35,6 +35,19 @@ trait Loggable
         return $this;
     }
 
+    /**
+     * Fields to redact from the activity-log diff (both old and new values).
+     * Read by ActivityLogger::logModel() — a public accessor because the
+     * $loggableHidden property is protected and the redaction happens in the
+     * service, not on the model.
+     *
+     * @return array<int, string>
+     */
+    public function getLoggableHidden(): array
+    {
+        return $this->loggableHidden ?? [];
+    }
+
     public static function bootLoggable(): void
     {
         static::created(function ($model) {
@@ -44,16 +57,8 @@ trait Loggable
 
         static::updated(function ($model) {
             if (! $model->loggingEnabled) return;
-
-            // Strip fields the model wants hidden from logs
-            $hidden = $model->loggableHidden ?? [];
-            foreach ($hidden as $field) {
-                $model->original[$field] = '***';
-                if (isset($model->changes[$field])) {
-                    $model->changes[$field] = '***';
-                }
-            }
-
+            // Redaction is centralised in ActivityLogger::logModel() so it
+            // covers created/updated/deleted and both sides of the diff.
             ActivityLogger::logModel($model, 'updated');
         });
 
