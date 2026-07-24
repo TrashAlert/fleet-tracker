@@ -17,6 +17,7 @@ use App\Services\OsrmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Drivers\Gd\Driver;
@@ -322,34 +323,49 @@ class FleetController extends Controller
             return response()->json(['error' => 'Unauthorized.'], 403);
         }
 
-        if (! in_array($shipment->status, ['pending', 'delayed'])) {
-            return response()->json(['error' => 'This shipment has already been started.'], 422);
-        }
+        // Serialize concurrent starts for this vehicle. The check-then-write
+        // below is a race otherwise: two rapid taps both read "no in_transit"
+        // and both flip to in_transit, breaking the one-at-a-time invariant the
+        // radius/confirm flow depends on. Both contenders take the VEHICLE row
+        // lock first, so the second waits for the first to commit and then sees
+        // its in_transit shipment (locking the absent in_transit row wouldn't
+        // work — there's nothing to lock until one exists). On SQLite the lock
+        // is a no-op, so this is a MySQL/prod guarantee; behaviour is unchanged.
+        return DB::transaction(function () use ($shipment, $user) {
+            Vehicle::whereKey($shipment->vehicle_id)->lockForUpdate()->first();
 
-        // One at a time — block if another shipment is already in progress.
-        // Only in_transit counts: delayed means "late, not yet started".
-        $inProgress = Shipment::where('vehicle_id', $shipment->vehicle_id)
-            ->where('status', 'in_transit')
-            ->where('id', '!=', $shipment->id)
-            ->first();
+            // Re-read under the lock — status may have changed since the request began.
+            $shipment->refresh();
 
-        if ($inProgress) {
-            return response()->json([
-                'error' => "Finish your current delivery ({$inProgress->tracking_code}) before starting a new one.",
-            ], 422);
-        }
+            if (! in_array($shipment->status, ['pending', 'delayed'])) {
+                return response()->json(['error' => 'This shipment has already been started.'], 422);
+            }
 
-        $shipment->update(['status' => 'in_transit']);
+            // One at a time — block if another shipment is already in progress.
+            // Only in_transit counts: delayed means "late, not yet started".
+            $inProgress = Shipment::where('vehicle_id', $shipment->vehicle_id)
+                ->where('status', 'in_transit')
+                ->where('id', '!=', $shipment->id)
+                ->first();
 
-        ActivityLogger::logEvent(
-            'shipment_started',
-            "Driver {$user->name} acknowledged and started shipment {$shipment->tracking_code}",
-            'Shipment', $shipment->id, $shipment->tracking_code,
-            ['started_by' => $user->name, 'vehicle_id' => $shipment->vehicle_id],
-            ['causer_type' => 'web', 'causer_label' => $user->name]
-        );
+            if ($inProgress) {
+                return response()->json([
+                    'error' => "Finish your current delivery ({$inProgress->tracking_code}) before starting a new one.",
+                ], 422);
+            }
 
-        return response()->json(['ok' => true, 'tracking_code' => $shipment->tracking_code]);
+            $shipment->update(['status' => 'in_transit']);
+
+            ActivityLogger::logEvent(
+                'shipment_started',
+                "Driver {$user->name} acknowledged and started shipment {$shipment->tracking_code}",
+                'Shipment', $shipment->id, $shipment->tracking_code,
+                ['started_by' => $user->name, 'vehicle_id' => $shipment->vehicle_id],
+                ['causer_type' => 'web', 'causer_label' => $user->name]
+            );
+
+            return response()->json(['ok' => true, 'tracking_code' => $shipment->tracking_code]);
+        });
     }
 
     /**
