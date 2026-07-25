@@ -7,6 +7,7 @@ use App\Http\Controllers\FleetController;
 use App\Http\Controllers\GeocodingController;
 use App\Http\Controllers\OriginLocationController;
 use App\Http\Controllers\PerformanceController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShipmentTicketController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -126,6 +127,9 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
 
     // ── User Management (admin only) ──────────────────────────────────────
     Route::middleware('role:admin')->group(function () {
+        Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
+        Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+
         Route::get('/users', [UserController::class, 'index'])->name('users');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');

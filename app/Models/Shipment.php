@@ -108,8 +108,9 @@ class Shipment extends Model
      * Check if the vehicle is currently inside the destination radius
      * using the latest stored GPS position.
      */
-    public function isCurrentlyNearDestination(int $radiusMetres = 200): bool
+    public function isCurrentlyNearDestination(?int $radiusMetres = null): bool
     {
+        $radiusMetres ??= (int) config('fleet.geofence_radius_metres', 200);
         $pos = $this->vehicle?->latestPosition;
         if (! $pos) {
             return false;
@@ -118,8 +119,9 @@ class Shipment extends Model
         return $pos->distanceTo($this->destination_lat, $this->destination_lng) <= $radiusMetres;
     }
 
-    public function isNearDestination(float $radiusMetres = 200): bool
+    public function isNearDestination(?float $radiusMetres = null): bool
     {
+        $radiusMetres ??= (float) config('fleet.geofence_radius_metres', 200);
         $latest = $this->vehicle->latestPosition;
         if (! $latest) {
             return false;

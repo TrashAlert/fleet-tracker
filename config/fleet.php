@@ -17,6 +17,10 @@ return [
     // Seconds without GPS data before a vehicle is considered offline
     'gps_stale_timeout_seconds' => env('GPS_STALE_TIMEOUT_SECONDS', 60),
 
+    // Destination geofence radius (metres) — the "near destination" / confirm
+    // zone around a shipment's destination_lat/lng. Admin-editable at runtime.
+    'geofence_radius_metres' => env('FLEET_GEOFENCE_RADIUS_METRES', 200),
+
     // MQTT topic prefix
     'mqtt_topic_prefix' => env('MQTT_TOPIC_PREFIX', 'fleet/'),
 

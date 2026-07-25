@@ -241,7 +241,7 @@ class MqttSubscriber extends Command
     private function checkShipmentRadius(Vehicle $vehicle, GpsTelemetry $telemetry, Shipment $shipment): void
     {
         $distance = $telemetry->distanceTo($shipment->destination_lat, $shipment->destination_lng);
-        $withinRadius = $distance <= 200;
+        $withinRadius = $distance <= (int) config('fleet.geofence_radius_metres', 200);
 
         // ── Vehicle is within destination radius ───────────────────────────
         if ($withinRadius) {

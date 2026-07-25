@@ -406,7 +406,7 @@ class FleetController extends Controller
 
         // Validate driver is still within radius
         $shipment->load('vehicle.latestPosition');
-        if (! $shipment->isCurrentlyNearDestination(200)) {
+        if (! $shipment->isCurrentlyNearDestination()) {
             return response()->json([
                 'error' => 'You are no longer within the delivery zone. Move closer to the destination to confirm.',
             ], 422);
@@ -578,8 +578,9 @@ class FleetController extends Controller
             (float) $pos->latitude, (float) $pos->longitude, $destinations
         );
 
-        $shipments = $active->map(function ($s, $i) use ($pos, $routes) {
-            $distance = $pos->distanceTo($s->destination_lat, $s->destination_lng); // straight-line — used by the 200m confirm radius
+        $radius = (int) config('fleet.geofence_radius_metres', 200);
+        $shipments = $active->map(function ($s, $i) use ($pos, $routes, $radius) {
+            $distance = $pos->distanceTo($s->destination_lat, $s->destination_lng); // straight-line — used by the confirm radius
             $route = $routes[$i] ?? null;
 
             return [
@@ -596,7 +597,7 @@ class FleetController extends Controller
                 // Only the delivery actually in progress can be "near" — a
                 // pending/delayed stop that happens to share the area must not
                 // trigger the confirm-photo banner (it can't be confirmed anyway).
-                'near_destination' => $s->status === 'in_transit' && $distance <= 200,
+                'near_destination' => $s->status === 'in_transit' && $distance <= $radius,
                 'near_destination_at' => $s->near_destination_at?->toIso8601String(),
                 'left_radius_at' => $s->left_radius_at?->toIso8601String(),
                 'delivery_flag_sent' => $s->delivery_flag_sent,
