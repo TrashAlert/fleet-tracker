@@ -342,6 +342,16 @@
         /* z-index containment: nothing inside the map can paint above page chrome */
         .map-wrap { position: relative; z-index: 0; }
         #client-map { height: 500px; }
+        /* Loading shimmer over the map until the first tiles load. */
+        .map-skeleton { position: absolute; inset: 0; z-index: 2; background: var(--surface); overflow: hidden; }
+        .map-skeleton::after {
+            content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+            background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 7%, transparent), transparent);
+            animation: mapSkel 1.4s ease-in-out infinite;
+        }
+        @keyframes mapSkel { to { transform: translateX(100%); } }
+        .map-skeleton.is-hidden { display: none; }
+        @media (prefers-reduced-motion: reduce) { .map-skeleton::after { animation: none; } }
         /* Dark mode: same class-scoped tile filter as the fleet pages; light
            mode renders tiles unfiltered (the page's default). */
         html[data-theme="dark"] .leaflet-tile-pane { filter: brightness(0.65) saturate(0.7) hue-rotate(185deg); }
@@ -845,6 +855,7 @@
                     </div>
                     <div class="map-wrap">
                         <div id="client-map"></div>
+                        <div class="map-skeleton" id="clientMapSkeleton" aria-hidden="true"></div>
                     </div>
                 </div>
                 <div class="privacy-note">
@@ -915,7 +926,10 @@ const map = L.map('client-map').setView(
     LOCATION_HIDDEN ? 14 : 13
 );
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map)
+    .on('load', () => document.getElementById('clientMapSkeleton')?.classList.add('is-hidden'));
+// Fallback so the shimmer never stays up if the tile 'load' event is missed.
+setTimeout(() => document.getElementById('clientMapSkeleton')?.classList.add('is-hidden'), 4000);
 
 // Destination marker
 L.marker([DEST_LAT, DEST_LNG], {

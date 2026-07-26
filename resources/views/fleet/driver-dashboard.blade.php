@@ -210,6 +210,7 @@
         {{-- z-index:0 traps Leaflet's controls below the nav drawer / bottom nav --}}
         <div style="flex:1; position:relative; z-index:0;">
             <div id="fleet-map" style="position:absolute; inset:0; height:100%;"></div>
+            <div class="map-skeleton" id="mapSkeleton" aria-hidden="true"></div>
         </div>
     </div>
 
@@ -283,6 +284,16 @@
 .leaflet-container    { background: #0a0b0e; }
 html[data-theme="light"] .leaflet-tile-pane { filter: none; }
 html[data-theme="light"] .leaflet-container { background: #dce3e8; }
+/* Loading shimmer over the map until the first tiles load. */
+.map-skeleton { position: absolute; inset: 0; z-index: 2; background: var(--surface); overflow: hidden; }
+.map-skeleton::after {
+    content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 7%, transparent), transparent);
+    animation: mapSkel 1.4s ease-in-out infinite;
+}
+@keyframes mapSkel { to { transform: translateX(100%); } }
+.map-skeleton.is-hidden { display: none; }
+@media (prefers-reduced-motion: reduce) { .map-skeleton::after { animation: none; } }
 .vehicle-popup        { font-family: var(--font-mono); font-size: 12px; }
 .vehicle-popup strong { color: var(--accent); }
 .alert-icon.overspeed svg { stroke: var(--danger); }
@@ -388,7 +399,10 @@ const map = L.map('fleet-map', { zoomControl: true, attributionControl: false })
         @endif
     );
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map)
+    .on('load', () => document.getElementById('mapSkeleton')?.classList.add('is-hidden'));
+// Fallback so the shimmer never stays up if the tile 'load' event is missed.
+setTimeout(() => document.getElementById('mapSkeleton')?.classList.add('is-hidden'), 4000);
 
 function makeIcon(isOffline) {
     return L.divIcon({

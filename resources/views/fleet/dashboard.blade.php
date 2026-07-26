@@ -110,6 +110,7 @@
     {{-- Map --}}
     <div class="map-wrap">
         <div id="fleet-map"></div>
+        <div class="map-skeleton" id="mapSkeleton" aria-hidden="true"></div>
 
         {{-- Live status pill --}}
         <div class="live-pill" id="live-pill">
@@ -286,6 +287,16 @@ html[data-theme="light"] .chip-accent { border-color: rgba(0,119,182,0.4); }
 }
 .map-wrap { position: absolute; inset: 0; }
 #fleet-map { position: absolute; inset: 0; height: 100%; }
+/* Loading shimmer over the map until the first tiles load. */
+.map-skeleton { position: absolute; inset: 0; z-index: 2; background: var(--surface); overflow: hidden; }
+.map-skeleton::after {
+    content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 7%, transparent), transparent);
+    animation: mapSkel 1.4s ease-in-out infinite;
+}
+@keyframes mapSkel { to { transform: translateX(100%); } }
+.map-skeleton.is-hidden { display: none; }
+@media (prefers-reduced-motion: reduce) { .map-skeleton::after { animation: none; } }
 
 .float-panel {
     position: absolute; z-index: 700;
@@ -423,7 +434,10 @@ const map = L.map('fleet-map', { zoomControl: false, attributionControl: false }
     .setView([2.1896, 102.2501], 10);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map)
+    .on('load', () => document.getElementById('mapSkeleton')?.classList.add('is-hidden'));
+// Fallback so the shimmer never stays up if the tile 'load' event is missed.
+setTimeout(() => document.getElementById('mapSkeleton')?.classList.add('is-hidden'), 4000);
 
 function makeIcon(isOffline) {
     return L.divIcon({

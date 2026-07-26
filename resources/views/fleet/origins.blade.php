@@ -26,6 +26,7 @@
     </div>
     <div class="wh-map-wrap">
         <div id="originsMap" style="position:absolute; inset:0;"></div>
+        <div class="map-skeleton" id="mapSkeleton" aria-hidden="true"></div>
     </div>
 </div>
 
@@ -236,6 +237,16 @@ html[data-theme="light"] .seg-btn.active { background:rgba(0,119,182,0.10); }
 /* ── Overview map: contained stacking context so the mobile drawer,
       backdrop and sticky topbar always paint above the map ── */
 .wh-map-wrap { position:relative; z-index:0; height:320px; border-radius:0 0 10px 10px; overflow:hidden; }
+/* Loading shimmer over the map until the first tiles load. */
+.map-skeleton { position:absolute; inset:0; z-index:2; background:var(--surface); overflow:hidden; }
+.map-skeleton::after {
+    content:''; position:absolute; inset:0; transform:translateX(-100%);
+    background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 7%, transparent), transparent);
+    animation:mapSkel 1.4s ease-in-out infinite;
+}
+@keyframes mapSkel { to { transform:translateX(100%); } }
+.map-skeleton.is-hidden { display:none; }
+@media (prefers-reduced-motion: reduce) { .map-skeleton::after { animation:none; } }
 
 /* ── Table ── */
 .wh-row { cursor:pointer; }
@@ -329,7 +340,10 @@ function whIcon(size = 22) {
 // ── Overview map ──────────────────────────────────────────────────────────
 (function initOverviewMap() {
     overviewMap = L.map('originsMap', { zoomControl: true, attributionControl: false });
-    L.tileLayer(OSM_TILE, { maxZoom: 19 }).addTo(overviewMap);
+    L.tileLayer(OSM_TILE, { maxZoom: 19 }).addTo(overviewMap)
+        .on('load', () => document.getElementById('mapSkeleton')?.classList.add('is-hidden'));
+    // Fallback so the shimmer never stays up if the tile 'load' event is missed.
+    setTimeout(() => document.getElementById('mapSkeleton')?.classList.add('is-hidden'), 4000);
     overviewMap.setView([3.1390, 101.6869], 7);
 
     const origins = @json($origins->where('is_active', true)->values());
