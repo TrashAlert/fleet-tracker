@@ -6,8 +6,8 @@ Artisan daemon ingests them, derives alerts (overspeed, geofence, delay, offline
 and shipment status, and a role-scoped web dashboard plus a public client
 tracking page expose the data.
 
-The entire UI is **server-rendered Blade + Leaflet** (no SPA — the Vite/Vue
-tooling in `package.json` is vestigial and not wired up).
+The entire UI is **server-rendered Blade + Leaflet** — no SPA and no build step
+(assets load via CDN + inline styles/scripts; there is no `npm`/Vite pipeline).
 
 ---
 
@@ -18,24 +18,53 @@ tooling in `package.json` is vestigial and not wired up).
 - **Role-based access** — `admin`, `manager`, `driver`. Drivers get *scoped
   data*, not just hidden UI: queries are filtered to their assigned vehicle
   server-side. Deactivated accounts are force-logged-out on their next request.
-- **Shipment lifecycle** — `pending → in_transit → delivered` with `delayed` as
-  a side-status and `cancelled` as terminal. Drivers start deliveries, and
-  confirm them with a mandatory proof photo, validated server-side against a
-  200 m destination geofence.
+  Drivers get a mobile-first dashboard — bottom tab nav, large tap targets, and
+  pull-to-refresh.
+- **Shipment lifecycle** — `pending → in_transit → delivered` with `cancelled`
+  and `returned` as terminal. `delayed` means *late and not yet started*: a
+  pending shipment past its ETA flips to `delayed` (still startable); a started
+  shipment that runs late keeps `in_transit` and shows an OVERDUE badge instead.
+  Drivers start deliveries, and confirm them with a mandatory proof photo,
+  validated server-side against a 200 m destination geofence.
+- **Failed deliveries** — a driver on an active delivery can report a failed
+  attempt (recipient absent, wrong address, refused, …) with an optional photo,
+  from anywhere (no geofence). Each failure re-queues the parcel for another try
+  and emails the customer; after a configurable number of attempts
+  (`max_delivery_attempts`) the shipment is returned to sender. Every attempt
+  and the return show up on the customer's tracking timeline.
 - **Alerts** — overspeed, delay (packet-driven *and* a scheduled sweep),
   offline-vehicle detection, and a "left the delivery zone without confirming"
   geofence flag.
 - **Client tracking portal** — public, no-auth page (`/track?code=…`) where
-  customers follow their shipment. Live location is only exposed while the
-  shipment is actually moving (suppressed server-side otherwise); road ETA via
-  OSRM with straight-line fallback.
+  customers follow their shipment: a delivery-history timeline (created →
+  out for delivery → arriving → delivered, curated from the activity log with
+  client-safe labels), live queue position, and a live map. Live location is
+  only exposed while the shipment is actually moving (suppressed server-side
+  otherwise); road ETA via OSRM with straight-line fallback. Light/dark themed,
+  with client-side form validation on the shipment-request form.
+- **Shipment requests (tickets)** — customers without an account request a
+  shipment straight from the tracking portal (throttled public form). They get
+  a request code to read to staff; admins/managers review the queue and either
+  deny or approve — approval creates the real shipment from a prefilled form
+  and emails the customer exactly once, with their new tracking code.
 - **Address geocoding** — shipment destinations are searched via a self-hosted
   Nominatim instance with autocomplete, two-way synced with a map pin picker;
   plus a free-text delivery-instructions field surfaced to the driver.
-- **Route ETA** — self-hosted OSRM computes road distance/drive time (driver
-  dashboard ordering, client ETA). Both OSRM and Nominatim are *soft
-  dependencies* — when unreachable, the app degrades to straight-line distance
-  and manual pin entry instead of erroring.
+- **Route ETA & manifest optimization** — self-hosted OSRM computes road
+  distance/drive time (client ETA, per-stop figures), and its Trip service
+  (a TSP solver) orders the driver's stops as an optimized tour: the started
+  delivery stays first, the remaining stops are toured from its destination.
+  The tour is drawn on the driver's map as a manifest line, and customers see
+  their queue position ("2 deliveries before yours") on the tracking page —
+  a privacy-safe count that reveals no vehicle location. Both OSRM and
+  Nominatim are *soft dependencies* — when unreachable, the app degrades to
+  nearest-first/straight-line ordering and manual pin entry instead of
+  erroring.
+- **Admin settings** — an admin-only page (`/fleet/settings`) to tune operational
+  thresholds (overspeed, delay, GPS-staleness/offline, max active shipments, max
+  delivery attempts, geofence radius) at runtime. Values persist to the database
+  and override `config/fleet.php` at boot, so no redeploy is needed; daemon-side
+  thresholds take effect after the MQTT subscriber restarts.
 - **Activity log** — automatic audit trail of model changes (with sensitive-field
   redaction) plus system events (MQTT ingestion, alerts, delivery flow).
 - **Email notifications** — shipment created, delivery delayed, delivery
@@ -81,7 +110,8 @@ app/
 │   └── CheckDelayedShipments.php    ← fleet:check-delays sweep
 ├── Http/Controllers/
 │   ├── FleetController.php          ← dashboard, live API, shipments, lifecycle
-│   ├── ClientTrackingController.php ← public tracking portal + status JSON
+│   ├── ClientTrackingController.php ← public tracking portal + status JSON + timeline
+│   ├── ShipmentTicketController.php ← client shipment requests (submit / review / deny)
 │   ├── GeocodingController.php      ← Nominatim proxy (search / reverse)
 │   ├── OriginLocationController.php ← warehouse/depot presets CRUD
 │   ├── ActivityLogController.php    ← audit trail UI + API
@@ -92,17 +122,19 @@ app/
 │   ├── RoleMiddleware.php           ← role:admin,manager route gate
 │   └── EnsureUserIsActive.php       ← force-logout for deactivated accounts
 ├── Models/                          ← Vehicle, GpsTelemetry, Shipment, Alert,
-│   │                                  User, OriginLocation, ActivityLog
+│   │                                  ShipmentTicket, User, OriginLocation, ActivityLog
 ├── Services/
-│   ├── OsrmService.php              ← road distance/duration (Table service)
+│   ├── OsrmService.php              ← OSRM client (Table / Route / Trip-TSP)
+│   ├── ManifestService.php          ← single source of truth for stop visit order
 │   ├── NominatimService.php         ← geocode search/reverse (cached)
 │   ├── ShipmentDelayService.php     ← single source of truth for delay handling
 │   └── ActivityLogger.php           ← audit-trail writer
-├── Notifications/                   ← ShipmentCreated / DeliveryDelayed / DeliveryConfirmed
+├── Notifications/                   ← ShipmentCreated / DeliveryDelayed /
+│                                      DeliveryConfirmed / ShipmentTicketApproved
 └── Traits/Loggable.php              ← auto audit-logging on model events
 
 config/fleet.php                     ← all fleet tunables (env-overridable)
-resources/views/{fleet,client,auth,layouts}/  ← the actual UI (Blade + Leaflet)
+resources/views/{fleet,client,auth,layouts,pdf}/  ← the actual UI (Blade + Leaflet)
 routes/web.php                       ← all routes;  routes/console.php ← scheduler
 fleet-mqtt-subscriber.conf           ← Supervisor config for the daemon
 setup.sh                             ← one-shot Ubuntu server setup
@@ -161,6 +193,17 @@ This seeds the default admin — **change the password after first login**:
 
 > `admin@fleettrack.local` / `Admin@1234`
 
+For a populated demo (vehicles, drivers, shipments in every status, live GPS,
+alerts, and client timelines) there's a **re-runnable** seeder that resets the
+fleet data while keeping the admin:
+
+```bash
+php artisan db:seed --class=PresentationSeeder
+```
+
+All seeded customer emails use `@example.com` (non-deliverable), so it's safe to
+run even with real mail configured. Seeded drivers log in with `Password@123`.
+
 There is **no self-registration**: admins create manager/driver accounts from
 the Users page. A driver is linked to a vehicle via `users.vehicle_id`.
 
@@ -183,12 +226,15 @@ All tunables are env-overridable:
 | `overspeed_threshold_kmh` | `GPS_OVERSPEED_THRESHOLD` | 110 | Speed that raises an overspeed alert |
 | `delay_threshold_minutes` | `GPS_DELAY_THRESHOLD_MINUTES` | 15 | Minutes past ETA before a shipment is *delayed* |
 | `gps_stale_timeout_seconds` | `GPS_STALE_TIMEOUT_SECONDS` | 60 | Dashboard online/offline pill (cosmetic) |
+| `geofence_radius_metres` | `FLEET_GEOFENCE_RADIUS_METRES` | 200 | Destination arrival/confirm zone radius |
 | `offline_alert_threshold_seconds` | `GPS_OFFLINE_ALERT_SECONDS` | 180 | GPS silence before an offline **alert** |
 | `max_active_shipments` | `FLEET_MAX_ACTIVE_SHIPMENTS` | 20 | Per-vehicle active-shipment cap at creation |
+| `max_delivery_attempts` | `FLEET_MAX_DELIVERY_ATTEMPTS` | 3 | Failed attempts before return-to-sender |
 | `mqtt_topic_prefix` | `MQTT_TOPIC_PREFIX` | `fleet/` | Telemetry topic prefix |
 | `osrm_url` | `OSRM_URL` | `http://localhost:5001` | Self-hosted OSRM (road ETA) |
 | `nominatim_url` | `NOMINATIM_URL` | `http://localhost:8082` | Self-hosted Nominatim (geocoding) |
 | `nominatim_country_codes` | `NOMINATIM_COUNTRY_CODES` | `my` | Geocode result country filter |
+| `delivery_tiers` | — | standard 5d, express 2d | Service tiers; expected date = now + tier days (admins also get a custom-date option) |
 
 Note the two distinct staleness settings: the short one only drives the
 dashboard's online/offline pill; the long one raises the actual offline alert
@@ -201,10 +247,12 @@ dashboard's online/offline pill; the long one raises the actual offline alert
 | Capability | admin | manager | driver |
 |---|---|---|---|
 | Live map / dashboard | all vehicles | all vehicles | own vehicle only |
-| Shipments | create, override status | create, override status | view own, start, confirm |
+| Shipments | create, override status | create, override status | view own, start, confirm, report failed |
+| Shipment request tickets | review, approve, deny | review, approve, deny | — |
 | Vehicles / origins CRUD | ✔ | ✔ | — |
 | Activity log / performance | ✔ | ✔ | — |
 | User management | ✔ | — | — |
+| Settings (operational thresholds) | ✔ | — | — |
 
 ---
 
@@ -219,8 +267,10 @@ dashboard's online/offline pill; the long one raises the actual offline alert
 | `GET /fleet/api/geocode?q=…` / `…/reverse?lat=&lng=` | Nominatim proxy (admin/manager, throttled) |
 | `POST /fleet/api/shipments/{id}/start-delivery` | Driver starts a delivery (one active per vehicle) |
 | `POST /fleet/api/shipments/{id}/confirm-delivery` | Driver confirms — photo required, 200 m re-check |
-| `GET /track?code=XXXXXXXXXX` | Client tracking portal (public) |
-| `GET /api/track/{code}/status` | Shipment status JSON (public, polled) |
+| `POST /fleet/api/shipments/{id}/fail-delivery` | Driver reports a failed attempt (reason, optional photo; no geofence) |
+| `GET /track?code=XXXXXXXXXX` | Client tracking portal (public, throttled) |
+| `GET /api/track/{code}/status` | Shipment status JSON (public, polled, throttled) |
+| `POST /api/track/request` | Client shipment request → ticket (public, throttled 5/min) |
 
 ---
 
@@ -262,9 +312,12 @@ vendor/bin/pint                             # code style (Laravel preset)
 
 Suites cover the role/access matrix, the shipment lifecycle state machine, the
 real MQTT ingestion pipeline (synthetic packets through `processTelemetry`),
-the delay sweep, and the geocoding proxy. `Tests\Concerns\CreatesFleetData` is
+the delay sweep, the driver manifest ordering (OSRM faked), the client portal's
+privacy contract (location suppression, rate limits, timeline, queue position),
+the ticket flow, and the geocoding proxy. `Tests\Concerns\CreatesFleetData` is
 the shared, deliberately factory-free builder trait — use its helpers
-(`makeVehicle()`, `makeDriver()`, `makeShipment()`, `packet()`, …) in new tests.
+(`makeVehicle()`, `makeDriver()`, `makeShipment()`, `makeTicket()`, `packet()`, …)
+in new tests.
 
 Note: the Performance page's raw MySQL window-function queries are not covered
 by the SQLite-based suite.
@@ -303,11 +356,4 @@ Point nginx at `/var/www/fleet-tracker/public` and ensure the web user can read
 
 ## Known issues / open items
 
-1. The public GET tracking routes (`/track`, `/api/track/{code}/status`) have
-   no Laravel-level `throttle:` middleware — rate limiting for them is done in
-   nginx on the internet-facing block. Add app-level throttling as
-   defense-in-depth if you deploy behind a different web server.
-2. Frontend build tooling (`package.json`, `vite.config.ts`, `components.json`)
-   is configured for Inertia/Vue but not wired up — the real UI is Blade. Don't
-   assume `npm run dev` works.
-3. `pusher/pusher-php-server` and `laravel/sanctum` are unused dependencies.
+1. `pusher/pusher-php-server` and `laravel/sanctum` are unused dependencies.

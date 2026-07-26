@@ -5,10 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script>
-        // Apply saved theme before first paint to prevent flash
+        // Apply saved theme + sidebar state before first paint to prevent flash
         (function () {
             const saved = localStorage.getItem('fleet-theme');
             if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
+            if (localStorage.getItem('fleet-sidebar') === 'collapsed') {
+                document.documentElement.classList.add('sidebar-collapsed');
+            }
         })();
     </script>
     <title>@yield('title', 'Fleet Control') — FleetTrack</title>
@@ -121,6 +124,7 @@
             position: sticky;
             top: 0;
             height: 100vh;
+            transition: width .2s ease;
         }
 
         .sidebar-logo {
@@ -475,6 +479,27 @@
         .bottom-nav a.active { color: var(--accent); }
         .bottom-nav svg { width: 23px; height: 23px; }
 
+        /* ── Collapsible sidebar (desktop) ── */
+        .topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .sidebar-toggle {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px; flex-shrink: 0;
+            background: transparent; border: 1px solid var(--border); border-radius: 6px;
+            color: var(--subtle); cursor: pointer; transition: all .15s;
+        }
+        .sidebar-toggle:hover { color: var(--accent); border-color: var(--accent); }
+        .sidebar-toggle svg { width: 15px; height: 15px; }
+
+        @media (min-width: 769px) {
+            html.sidebar-collapsed .sidebar {
+                width: 0;
+                min-width: 0;
+                border-right: none;
+                overflow: hidden;
+                pointer-events: none;
+            }
+        }
+
         /* ── Mobile layout ── */
         @media (max-width: 768px) {
             body { flex-direction: column; }
@@ -634,10 +659,11 @@
                 width:100%; background:transparent; border:1px solid var(--border);
                 border-radius:6px; padding:7px 10px; color:var(--subtle);
                 font-family:var(--font-mono); font-size:11px; cursor:pointer;
-                transition:all .15s; text-align:left;
+                transition:all .15s; display:flex; align-items:center; gap:8px;
             " onmouseover="this.style.color='var(--danger)';this.style.borderColor='var(--danger)';"
                onmouseout="this.style.color='var(--subtle)';this.style.borderColor='var(--border)';">
-                ⎋ &nbsp;Sign Out
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Sign Out
             </button>
         </form>
     </div>
@@ -646,7 +672,12 @@
 {{-- Main --}}
 <div class="main">
     <header class="topbar">
-        <span class="topbar-title">@yield('title', 'Dashboard')</span>
+        <div class="topbar-left">
+            <button class="sidebar-toggle" onclick="toggleSidebarCollapse()" aria-label="Toggle sidebar" title="Show / hide sidebar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            </button>
+            <span class="topbar-title">@yield('title', 'Dashboard')</span>
+        </div>
         <div class="topbar-right">
             <div class="sys-pill" id="sysPill" title="Age of the freshest GPS packet across the fleet — green means ESP32, broker, subscriber and database are all flowing">
                 <span class="sys-dot"></span>
@@ -717,6 +748,14 @@ applyThemeUI();
 function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('open');
     document.getElementById('sidebar-backdrop').classList.toggle('show');
+}
+
+// Desktop: collapse/expand the nav sidebar (persisted). Fires a resize so
+// Leaflet maps (dashboard / driver) re-fit to the new content width.
+function toggleSidebarCollapse() {
+    const collapsed = document.documentElement.classList.toggle('sidebar-collapsed');
+    try { localStorage.setItem('fleet-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) {}
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
 }
 // Close drawer when a nav link is tapped
 document.querySelectorAll('.sidebar .nav-item').forEach(link => {
