@@ -124,8 +124,13 @@
             position: sticky;
             top: 0;
             height: 100vh;
-            transition: width .2s ease;
+            overflow-x: hidden;
+            white-space: nowrap;
+            transition: width .26s cubic-bezier(.4, 0, .2, 1);
         }
+        /* Inner blocks fade in step with the width animation (slightly delayed
+           on open so content appears once the panel is mostly there). */
+        .sidebar > * { transition: opacity .18s ease .06s; }
 
         .sidebar-logo {
             padding: 24px 20px 20px;
@@ -495,9 +500,17 @@
                 width: 0;
                 min-width: 0;
                 border-right: none;
-                overflow: hidden;
                 pointer-events: none;
             }
+            /* Fade the content out faster than the panel closes. */
+            html.sidebar-collapsed .sidebar > * {
+                opacity: 0;
+                transition: opacity .12s ease;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .sidebar, .sidebar > * { transition: none; }
         }
 
         /* ── Mobile layout ── */
@@ -755,7 +768,13 @@ function toggleSidebar() {
 function toggleSidebarCollapse() {
     const collapsed = document.documentElement.classList.toggle('sidebar-collapsed');
     try { localStorage.setItem('fleet-sidebar', collapsed ? 'collapsed' : 'expanded'); } catch (e) {}
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+    // Re-fit Leaflet maps every frame for the duration of the CSS transition, so
+    // the map tracks the sidebar smoothly instead of snapping once at the end.
+    const start = performance.now();
+    (function follow() {
+        window.dispatchEvent(new Event('resize'));
+        if (performance.now() - start < 320) requestAnimationFrame(follow);
+    })();
 }
 // Close drawer when a nav link is tapped
 document.querySelectorAll('.sidebar .nav-item').forEach(link => {
