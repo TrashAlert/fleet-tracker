@@ -102,7 +102,11 @@
             font-size: 20px;
             color: #00e5ff;
             letter-spacing: -0.5px;
+            text-decoration: none;      /* it's a link (home) — no underline */
+            display: inline-block;
+            transition: opacity 0.15s;
         }
+        .wordmark:hover { opacity: 0.82; }
         .wordmark span { color: #fff; font-weight: 400; font-size: 13px; margin-left: 10px; }
         /* Theme toggle — sits on the always-dark header, so fixed light colors.
            Shows the mode you'd switch TO: moon in light mode, sun in dark. */
@@ -506,7 +510,7 @@
 
 <header class="header">
     <div>
-        <div class="wordmark">FleetTrack <span>/ Shipment Tracker</span></div>
+        <a href="/track" class="wordmark" title="Back to tracking home" aria-label="FleetTrack — back to tracking home">FleetTrack <span>/ Shipment Tracker</span></a>
     </div>
     <button class="theme-btn" type="button" onclick="toggleTrackTheme()" aria-label="Toggle light/dark theme">
         <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
