@@ -407,6 +407,17 @@
         }
         .fwd-input:focus { border-color: var(--link); }
         textarea.fwd-input { resize: vertical; min-height: 60px; }
+        /* Invalid field on submit: red outline + pulsing glow (overrides :focus). */
+        .fwd-input.input-error { border-color: var(--danger) !important; animation: fwdGlow 1.1s ease-in-out infinite; }
+        @keyframes fwdGlow {
+            0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 45%, transparent); }
+            50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 22%, transparent); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .fwd-input.input-error { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
+        }
+        .fwd-field-err { display: none; font-size: 10px; color: var(--danger); margin-top: 5px; }
+        .fwd-field-err.show { display: block; }
         .fwd-errors {
             background: rgba(220, 53, 69, 0.08); border: 1px solid rgba(220, 53, 69, 0.3);
             border-radius: 8px; padding: 10px 14px; font-size: 12px;
@@ -564,24 +575,31 @@
                         request, and you'll be emailed if it is approved.
                     </p>
 
-                    @if($errors->ticket->any())
+                    @php
+                        // Errors shown inline under their field (below) — list only the rest here.
+                        $inlineKeys = ['client_name', 'client_email', 'destination_address'];
+                        $otherErrors = collect($errors->ticket->messages())->except($inlineKeys)->flatten();
+                    @endphp
+                    @if($otherErrors->isNotEmpty())
                         <ul class="fwd-errors" style="margin-bottom:14px;">
-                            @foreach($errors->ticket->all() as $error)
+                            @foreach($otherErrors as $error)
                                 <li>{{ $error }}</li>
                             @endforeach
                         </ul>
                     @endif
 
-                    <form method="POST" action="{{ route('client.track.request') }}">
+                    <form method="POST" action="{{ route('client.track.request') }}" id="fwdForm" novalidate>
                         @csrf
                         <div class="fwd-grid">
                             <div class="fwd-field">
                                 <label class="fwd-label" for="fwd-name">Your name</label>
-                                <input class="fwd-input" id="fwd-name" name="client_name" maxlength="255" required value="{{ old('client_name') }}">
+                                <input class="fwd-input {{ $errors->ticket->has('client_name') ? 'input-error' : '' }}" id="fwd-name" name="client_name" maxlength="255" required value="{{ old('client_name') }}">
+                                <span class="fwd-field-err {{ $errors->ticket->has('client_name') ? 'show' : '' }}" id="err-client_name">{{ $errors->ticket->first('client_name') }}</span>
                             </div>
                             <div class="fwd-field">
                                 <label class="fwd-label" for="fwd-email">Your email</label>
-                                <input class="fwd-input" id="fwd-email" name="client_email" type="email" maxlength="255" required value="{{ old('client_email') }}">
+                                <input class="fwd-input {{ $errors->ticket->has('client_email') ? 'input-error' : '' }}" id="fwd-email" name="client_email" type="email" maxlength="255" required value="{{ old('client_email') }}">
+                                <span class="fwd-field-err {{ $errors->ticket->has('client_email') ? 'show' : '' }}" id="err-client_email">{{ $errors->ticket->first('client_email') }}</span>
                             </div>
                             <div class="fwd-field">
                                 <label class="fwd-label" for="fwd-phone">Phone (optional)</label>
@@ -604,8 +622,9 @@
                             </div>
                             <div class="fwd-field full">
                                 <label class="fwd-label" for="fwd-address">Delivery address</label>
-                                <input class="fwd-input" id="fwd-address" name="destination_address" maxlength="500" required
+                                <input class="fwd-input {{ $errors->ticket->has('destination_address') ? 'input-error' : '' }}" id="fwd-address" name="destination_address" maxlength="500" required
                                        placeholder="Full address the goods should be delivered to" value="{{ old('destination_address') }}">
+                                <span class="fwd-field-err {{ $errors->ticket->has('destination_address') ? 'show' : '' }}" id="err-destination_address">{{ $errors->ticket->first('destination_address') }}</span>
                             </div>
                             <div class="fwd-field full">
                                 <label class="fwd-label" for="fwd-notes">Delivery instructions (optional)</label>
@@ -626,6 +645,55 @@
                     </form>
                 </div>
             </details>
+
+            <script>
+            // Client-side validation for the request form: on submit, flag empty
+            // or wrong-format fields with a red outline + glow (see .input-error)
+            // and block the POST. Server validation remains the backstop.
+            (function () {
+                const form = document.getElementById('fwdForm');
+                if (! form) return;
+
+                // Each rule returns an error message ('' means the field is valid).
+                const rules = {
+                    client_name:         v => v.trim() === '' ? 'Please enter your name.' : '',
+                    client_email:        v => v.trim() === '' ? 'Please enter your email.'
+                        : (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? '' : 'Enter a valid email address.'),
+                    destination_address: v => v.trim() === '' ? 'Please enter a delivery address.' : '',
+                };
+
+                function clearError(name) {
+                    const el = form.elements[name];
+                    if (el) el.classList.remove('input-error');
+                    const errEl = document.getElementById('err-' + name);
+                    if (errEl) { errEl.textContent = ''; errEl.classList.remove('show'); }
+                }
+
+                // Clear a field's error the moment the user edits it.
+                Object.keys(rules).forEach(name => {
+                    const el = form.elements[name];
+                    if (el) el.addEventListener('input', () => clearError(name));
+                });
+
+                form.addEventListener('submit', e => {
+                    let firstBad = null;
+                    Object.entries(rules).forEach(([name, check]) => {
+                        const el = form.elements[name];
+                        if (! el) return;
+                        const msg = check(el.value);
+                        el.classList.toggle('input-error', !! msg);
+                        const errEl = document.getElementById('err-' + name);
+                        if (errEl) { errEl.textContent = msg; errEl.classList.toggle('show', !! msg); }
+                        if (msg && ! firstBad) firstBad = el;
+                    });
+                    if (firstBad) {
+                        e.preventDefault();
+                        firstBad.focus();
+                        firstBad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                });
+            })();
+            </script>
         @endif
 
     @elseif(! $shipment)
