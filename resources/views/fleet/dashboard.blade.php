@@ -213,12 +213,44 @@
 @endsection
 
 @push('styles')
+{{-- Marker clustering for the live map (loaded from the same CDN as Leaflet).
+     Only the base CSS (positioning + spiderfy animation) — the default green/
+     yellow bubble theme is intentionally NOT loaded; clusters are custom-styled
+     (.veh-cluster) to match the app's accent theme via iconCreateFunction. --}}
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
 <style>
 /* ── Map theme (dark filter removed automatically in light mode) ── */
 .leaflet-tile-pane    { filter: brightness(0.65) saturate(0.7) hue-rotate(185deg); }
 .leaflet-container    { background: #0a0b0e; }
 html[data-theme="light"] .leaflet-tile-pane { filter: none; }
 html[data-theme="light"] .leaflet-container { background: #dce3e8; }
+
+/* ── Live-map vehicle clusters — accent-themed count bubble matching the
+      vehicle markers; tints to --danger when the cluster holds an offline
+      vehicle. Colours come from CSS vars so it tracks light/dark mode. ── */
+.veh-cluster {
+    display:flex; align-items:center; justify-content:center;
+    border-radius:50%;
+    font-family:var(--font-numeric); font-weight:700; line-height:1;
+    color:var(--accent);
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    border:2px solid var(--accent);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 50%, transparent),
+                0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent),
+                0 2px 8px rgba(0,0,0,.45);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    transition: transform .15s ease;
+}
+.veh-cluster:hover { transform: scale(1.08); }
+.veh-cluster.is-offline {
+    color:var(--danger); border-color:var(--danger);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--danger) 50%, transparent),
+                0 0 0 5px color-mix(in srgb, var(--danger) 12%, transparent),
+                0 2px 8px rgba(0,0,0,.45);
+}
+.veh-cluster-sm { width:34px; height:34px; font-size:13px; }
+.veh-cluster-md { width:42px; height:42px; font-size:15px; }
+.veh-cluster-lg { width:52px; height:52px; font-size:18px; }
 .vehicle-popup        { font-family: var(--font-mono); font-size: 12px; }
 .vehicle-popup strong { color: var(--accent); }
 
@@ -426,6 +458,7 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
 @endpush
 
 @push('scripts')
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 
@@ -438,6 +471,28 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 
     .on('load', () => document.getElementById('mapSkeleton')?.classList.add('is-hidden'));
 // Fallback so the shimmer never stays up if the tile 'load' event is missed.
 setTimeout(() => document.getElementById('mapSkeleton')?.classList.add('is-hidden'), 4000);
+
+// Vehicle markers live in a cluster group so overlapping ones collapse into a
+// single count bubble; a modest radius means clustering only kicks in when
+// markers actually overlap, and hover coverage polygons are off (cleaner).
+const clusterGroup = L.markerClusterGroup({
+    showCoverageOnHover: false,
+    maxClusterRadius: 45,
+    // Custom count bubble: size tiers by count, red tint if any vehicle in the
+    // cluster is offline (vehState is refreshed each poll; markers carry their id).
+    iconCreateFunction: (cluster) => {
+        const count   = cluster.getChildCount();
+        const offline = cluster.getAllChildMarkers().some(m => vehState[m.vehicleId]);
+        const tier    = count < 10 ? 'sm' : count < 50 ? 'md' : 'lg';
+        const size    = tier === 'sm' ? 34 : tier === 'md' ? 42 : 52;
+        return L.divIcon({
+            className: '',
+            html: `<div class="veh-cluster veh-cluster-${tier}${offline ? ' is-offline' : ''}">${count}</div>`,
+            iconSize: [size, size],
+            iconAnchor: [size / 2, size / 2],
+        });
+    },
+}).addTo(map);
 
 function makeIcon(isOffline) {
     return L.divIcon({
@@ -492,9 +547,10 @@ async function fetchLivePositions() {
                 markers[v.id].setLatLng(latlng).setIcon(makeIcon(v.is_offline));
             } else {
                 markers[v.id] = L.marker(latlng, { icon: makeIcon(v.is_offline) })
-                    .addTo(map)
                     .bindPopup('')
                     .on('click', () => focusVehicle(v.id)); // also shows its destination route
+                markers[v.id].vehicleId = v.id; // let the cluster bubble read vehState
+                clusterGroup.addLayer(markers[v.id]);
             }
 
             markers[v.id].getPopup().setContent(`
@@ -533,9 +589,9 @@ function applyOnlineFilter() {
     Object.keys(markers).forEach(id => {
         const hide = onlineFilter && vehState[id];
         if (hide) {
-            if (map.hasLayer(markers[id])) map.removeLayer(markers[id]);
+            if (clusterGroup.hasLayer(markers[id])) clusterGroup.removeLayer(markers[id]);
         } else if (!historyMode) {
-            if (!map.hasLayer(markers[id])) markers[id].addTo(map);
+            if (!clusterGroup.hasLayer(markers[id])) clusterGroup.addLayer(markers[id]);
         }
         const row = document.getElementById(`frow-${id}`);
         if (row) row.classList.toggle('frow-dim', onlineFilter && vehState[id]);
@@ -554,9 +610,13 @@ function focusVehicle(id) {
     focusedVehicle = id;
 
     const m = markers[id];
-    if (m && map.hasLayer(m)) {
-        map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 15), { duration: 0.6 });
-        m.openPopup();
+    if (m && clusterGroup.hasLayer(m)) {
+        // If the marker is collapsed inside a cluster, zoom/spiderfy to reveal
+        // it first, then open its popup once it's individually on the map.
+        clusterGroup.zoomToShowLayer(m, () => {
+            map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 15), { duration: 0.6 });
+            m.openPopup();
+        });
     }
     showVehicleRoute(id);
 }
@@ -1009,7 +1069,7 @@ function enterHistoryMode() {
     clearVehicleRoute(); // live-mode overlay — never mixes with history layers
     if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
 
-    Object.values(markers).forEach(m => map.removeLayer(m));
+    clusterGroup.clearLayers();
 
     document.getElementById('fleet-panel').style.display = 'none';
     document.getElementById('live-pill').style.display   = 'none';
@@ -1024,7 +1084,7 @@ function exitHistoryMode() {
 
     if (wasHistory) {
         clearHistoryLayers();
-        Object.values(markers).forEach(m => m.addTo(map));
+        clusterGroup.addLayers(Object.values(markers));
         applyOnlineFilter();
 
         document.getElementById('fleet-panel').style.display = 'flex';
