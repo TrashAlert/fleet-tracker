@@ -55,7 +55,8 @@
             --border: #e2e0d8;
             --text: #1a1a1a;
             --subtle: #6b6b6b;
-            --accent: #1a1a2e;   /* dark navy FILL (header, panels, solid button) */
+            --accent: #1a1a2e;   /* dark navy FILL (panels, solid button) */
+            --header-bg: #1a1a2e; /* top brand bar — dark navy on the light page */
             --link: #1a1a2e;     /* accent as TEXT/BORDER (links, focus rings) —
                                     same as --accent in light, but must go LIGHT
                                     in dark mode, so it's a separate variable */
@@ -73,6 +74,7 @@
             --text: #e8eaf0;
             --subtle: #8b93a3;
             --accent: #232842;   /* lighter navy so panels separate from surface */
+            --header-bg: #141620; /* dark bar that matches the dark theme (not the brighter panel navy) */
             --link: #00e5ff;     /* fleet cyan — readable accent on dark */
         }
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -88,7 +90,7 @@
 
         /* ── Header ── */
         .header {
-            background: var(--accent);
+            background: var(--header-bg);
             padding: 20px 40px;
             display: flex;
             align-items: center;
