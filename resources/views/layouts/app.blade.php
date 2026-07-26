@@ -464,12 +464,16 @@
             font-size: 9px;
             letter-spacing: .05em;
             text-transform: uppercase;
-            padding: 6px 18px;
+            padding: 10px 20px;
+            min-height: 54px;              /* comfortable ≥44px touch target */
+            justify-content: center;
             cursor: pointer;
             border-radius: 8px;
+            -webkit-tap-highlight-color: transparent;
         }
+        .bottom-nav a:active, .bottom-nav button:active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
         .bottom-nav a.active { color: var(--accent); }
-        .bottom-nav svg { width: 20px; height: 20px; }
+        .bottom-nav svg { width: 23px; height: 23px; }
 
         /* ── Mobile layout ── */
         @media (max-width: 768px) {

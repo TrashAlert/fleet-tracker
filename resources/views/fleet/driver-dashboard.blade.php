@@ -27,6 +27,11 @@
 
 @php $vehicle = $vehicles->first(); @endphp
 
+{{-- Pull-to-refresh indicator (mobile) --}}
+<div id="pullRefresh" class="pull-refresh" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+</div>
+
 {{-- ── Vehicle header strip: glanceable plate + status + big speed ──────── --}}
 <div class="drv-header">
     <div style="min-width:0;">
@@ -355,6 +360,25 @@ html[data-theme="light"] .delivery-started { background:rgba(0,119,182,0.05); }
 @media (max-width: 899px) {
     .drv-btn { min-height:44px; font-size:12px; }  /* proper touch targets */
 }
+/* Bigger tap targets on phones (≥44px) */
+@media (max-width: 768px) {
+    .drv-btn { min-height:50px; font-size:13px; }
+    .chip { min-height:44px; padding-top:10px; padding-bottom:10px; }
+    .start-delivery-btn { min-height:54px; font-size:14px; }
+    .alert-item > button { min-width:44px; min-height:44px; }
+}
+/* ── Pull-to-refresh indicator ── */
+.pull-refresh {
+    position:fixed; top:10px; left:50%; transform:translateX(-50%) translateY(-52px);
+    z-index:350; width:38px; height:38px; border-radius:50%;
+    background:var(--surface); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none;
+    box-shadow:0 3px 14px rgba(0,0,0,.28); transition:opacity .15s;
+}
+.pull-refresh svg { width:18px; height:18px; color:var(--accent); transition:transform .2s; }
+.pull-refresh.ready svg { transform:rotate(180deg); }
+.pull-refresh.spinning svg { animation:pullSpin .8s linear infinite; }
+@keyframes pullSpin { to { transform:rotate(360deg); } }
 
 /* ── Confirmation banners on phones: stack button below text, full width ── */
 @media (max-width: 768px) {
@@ -957,6 +981,47 @@ fetchDeliveryStatus();
 setInterval(fetchLivePosition,    5000);
 setInterval(fetchNewAlerts,       10000);
 setInterval(fetchDeliveryStatus,  10000);
+
+// ── Swipe / pull-to-refresh (mobile) ───────────────────────────────────────
+// Pull down from the top of the page to re-fetch position, deliveries and
+// alerts — reuses the same poll functions, so no page reload / lost map state.
+(function () {
+    const ind = document.getElementById('pullRefresh');
+    if (! ind) return;
+
+    const TRIGGER = 55;          // px of pull needed to fire
+    let startY = 0, pull = 0, tracking = false, refreshing = false;
+
+    const reset = () => { ind.style.transform = 'translateX(-50%) translateY(-52px)'; ind.style.opacity = '0'; ind.classList.remove('ready'); pull = 0; };
+
+    document.addEventListener('touchstart', e => {
+        if (window.scrollY === 0 && ! refreshing) { startY = e.touches[0].clientY; tracking = true; }
+    }, { passive: true });
+
+    document.addEventListener('touchmove', e => {
+        if (! tracking || refreshing) return;
+        const dy = e.touches[0].clientY - startY;
+        if (dy <= 0 || window.scrollY > 0) { tracking = false; reset(); return; }
+        pull = Math.min(dy * 0.5, 80);
+        ind.style.opacity = Math.min(pull / TRIGGER, 1).toString();
+        ind.style.transform = `translateX(-50%) translateY(${pull - 12}px)`;
+        ind.classList.toggle('ready', pull >= TRIGGER);
+    }, { passive: true });
+
+    document.addEventListener('touchend', async () => {
+        if (! tracking || refreshing) return;
+        tracking = false;
+        if (pull < TRIGGER) { reset(); return; }
+
+        refreshing = true;
+        ind.classList.add('spinning');
+        ind.classList.remove('ready');
+        ind.style.opacity = '1';
+        ind.style.transform = 'translateX(-50%) translateY(44px)';
+        try { await Promise.all([fetchLivePosition(), fetchNewAlerts(), fetchDeliveryStatus()]); } catch (e) {}
+        setTimeout(() => { ind.classList.remove('spinning'); reset(); refreshing = false; }, 500);
+    }, { passive: true });
+})();
 </script>
 @endif
 @endpush
