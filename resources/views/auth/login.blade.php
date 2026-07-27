@@ -150,6 +150,18 @@
         .pw-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
         .pw-toggle svg { width: 17px; height: 17px; }
 
+        /* Failed-login feedback: a subtle one-shot shake of the card. Purely
+           presentational — driven by $errors->any(), no security impact. */
+        @keyframes loginShake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-5px); }
+            40% { transform: translateX(5px); }
+            60% { transform: translateX(-3px); }
+            80% { transform: translateX(3px); }
+        }
+        .card.shake { animation: loginShake 0.4s ease; }
+        @media (prefers-reduced-motion: reduce) { .card.shake { animation: none; } }
+
         /* Error state */
         .field.has-error input {
             border-color: var(--danger);
@@ -237,7 +249,7 @@
         <div class="logo-tagline">GPS Control System</div>
     </div>
 
-    <div class="card">
+    <div class="card {{ $errors->any() ? 'shake' : '' }}">
         <div class="card-title">Sign In</div>
         <div class="card-subtitle">Internal access only. Authorised personnel only.</div>
 
