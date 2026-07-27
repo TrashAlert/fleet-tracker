@@ -55,6 +55,10 @@ Route::post('/api/track/request', [ShipmentTicketController::class, 'store'])
 */
 Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(function () {
 
+    // Keep-alive — a no-op authed request that refreshes the session, pinged by
+    // the idle-timeout "Stay signed in" prompt. Guests can't reach it (auth group).
+    Route::get('/keep-alive', fn () => response()->noContent())->name('keep-alive');
+
     // ── Pages (admin + manager) ──────────────────────────────────────────
     Route::get('/', [FleetController::class, 'dashboard'])->name('dashboard');
     Route::get('/shipments', [FleetController::class, 'shipments'])->name('shipments');

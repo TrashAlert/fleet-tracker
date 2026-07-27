@@ -820,6 +820,164 @@ setInterval(refreshSysPill, 15000);
 {{-- Leaflet JS --}}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+{{-- ── Idle session timeout: inactivity warning + auto-logout ──────────────
+     UX layer over the server's sliding session timeout (SESSION_LIFETIME). The
+     server still enforces expiry; this warns before it and logs out proactively.
+     The countdown is driven from config('session.lifetime') so it always matches. --}}
+@auth
+<div class="idle-modal" id="idleModal" role="dialog" aria-modal="true" aria-labelledby="idleTitle">
+    <div class="idle-card">
+        <div class="idle-head">
+            <span class="idle-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </span>
+            <div>
+                <div class="idle-title" id="idleTitle">Session about to expire</div>
+                <div class="idle-sub">You've been inactive. For security you'll be signed out automatically.</div>
+            </div>
+        </div>
+        <div class="idle-count" id="idleCountdown">1:00</div>
+        <div class="idle-actions">
+            <button type="button" class="btn btn-ghost" onclick="idleLogoutNow()">Sign out now</button>
+            <button type="button" class="btn btn-primary" onclick="idleStaySignedIn()">Stay signed in</button>
+        </div>
+    </div>
+</div>
+<form id="idle-logout-form" method="POST" action="{{ route('auth.logout') }}" style="display:none;">@csrf</form>
+
+<style>
+    .idle-modal {
+        display: none; position: fixed; inset: 0; z-index: 3000; padding: 20px;
+        background: rgba(0,0,0,.6); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+        align-items: center; justify-content: center;
+    }
+    .idle-modal.show { display: flex; }
+    .idle-card {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+        width: min(380px, 100%); padding: 22px;
+    }
+    .idle-head { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 8px; }
+    .idle-icon {
+        flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning);
+    }
+    .idle-icon svg { width: 16px; height: 16px; }
+    .idle-title { font-family: var(--font-display); font-weight: 700; font-size: 14px; }
+    .idle-sub { font-size: 11px; color: var(--subtle); margin-top: 2px; line-height: 1.5; }
+    .idle-count {
+        font-family: var(--font-numeric); font-weight: 700; font-size: 30px; color: var(--warning);
+        text-align: center; margin: 10px 0 18px; font-variant-numeric: tabular-nums;
+    }
+    .idle-actions { display: flex; gap: 10px; }
+    .idle-actions .btn { flex: 1; justify-content: center; }
+</style>
+
+<script>
+(function () {
+    const IDLE_MS  = {{ (int) config('session.lifetime') }} * 60000; // matches the server timeout
+    const WARN_MS  = 60000;                     // warn 60s before expiry
+    const CHECK_MS = 15000;                     // how often idleness is evaluated
+    const KEEPALIVE_THROTTLE_MS = 5 * 60000;    // refresh server session at most this often while active
+    const KEEPALIVE_URL = '{{ route('fleet.keep-alive') }}';
+    const LOGIN_URL     = '{{ route('auth.login') }}';
+
+    const modal = document.getElementById('idleModal');
+    const countdownEl = document.getElementById('idleCountdown');
+    if (!modal) return;
+
+    let lastActivity  = Date.now();
+    let lastKeepAlive = Date.now();
+    let warned = false;
+    let loggingOut = false;
+    let tick = null;
+
+    function ping() {
+        fetch(KEEPALIVE_URL, { headers: { 'Accept': 'application/json' } }).catch(() => {});
+    }
+    function onActivity() {
+        if (warned) return;                     // once warned, require an explicit choice
+        lastActivity = Date.now();
+        // Keep the server session alive during genuine activity (throttled), so an
+        // actively-typing user on a non-polling page isn't expired server-side.
+        if (Date.now() - lastKeepAlive > KEEPALIVE_THROTTLE_MS) {
+            lastKeepAlive = Date.now();
+            ping();
+        }
+    }
+    ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(ev =>
+        window.addEventListener(ev, onActivity, { passive: true })
+    );
+
+    // Countdown is derived from an absolute expiry time, not a decrementing
+    // counter, so a throttled background tab can't desync it.
+    function render() {
+        const remaining = Math.max(0, Math.ceil((lastActivity + IDLE_MS - Date.now()) / 1000));
+        const m = Math.floor(remaining / 60);
+        const s = String(remaining % 60).padStart(2, '0');
+        countdownEl.textContent = `${m}:${s}`;
+    }
+    function showWarning() {
+        warned = true;
+        modal.classList.add('show');
+        render();
+        tick = setInterval(() => {
+            if (Date.now() - lastActivity >= IDLE_MS) { finish(); return; }
+            render();
+        }, 1000);
+    }
+    function evaluate() {
+        if (loggingOut) return;
+        const idle = Date.now() - lastActivity;
+        if (idle >= IDLE_MS) { finish(); return; }              // already expired → no savable countdown
+        if (!warned && idle >= IDLE_MS - WARN_MS) showWarning();
+    }
+    setInterval(evaluate, CHECK_MS);
+    // Re-check the instant a hidden tab is refocused — timers are throttled while
+    // hidden, so the session may already be dead by the time the user returns.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') evaluate();
+    });
+
+    // Ending the session: probe the server first. If it's still alive (a polling
+    // page can keep it warm) do a real CSRF POST logout; if it's already gone,
+    // just redirect to login — avoids a 419 on the stale token and the misleading
+    // "stay signed in" the old countdown offered for an already-dead session.
+    async function finish() {
+        if (loggingOut) return;
+        loggingOut = true;
+        clearInterval(tick);
+        try { sessionStorage.setItem('sessionExpired', '1'); } catch (e) {}
+        try {
+            const res = await fetch(KEEPALIVE_URL, { headers: { 'Accept': 'application/json' } });
+            if (res.ok) { document.getElementById('idle-logout-form').submit(); return; }
+        } catch (e) {}
+        window.location = LOGIN_URL;
+    }
+
+    window.idleStaySignedIn = async function () {
+        let ok = false;
+        try {
+            const res = await fetch(KEEPALIVE_URL, { headers: { 'Accept': 'application/json' } });
+            ok = res.ok;
+        } catch (e) {}
+        if (!ok) {                              // session already gone — can't be saved
+            try { sessionStorage.setItem('sessionExpired', '1'); } catch (e) {}
+            window.location = LOGIN_URL;
+            return;
+        }
+        clearInterval(tick);
+        warned = false;
+        lastActivity = lastKeepAlive = Date.now();
+        modal.classList.remove('show');
+    };
+    window.idleLogoutNow = function () {
+        document.getElementById('idle-logout-form').submit();   // deliberate sign-out (no "expired" note)
+    };
+})();
+</script>
+@endauth
+
 @stack('scripts')
 </body>
 </html>

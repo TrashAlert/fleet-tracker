@@ -253,6 +253,12 @@
         <div class="card-title">Sign In</div>
         <div class="card-subtitle">Internal access only. Authorised personnel only.</div>
 
+        {{-- Inactivity note (shown when the idle timeout signed the user out) --}}
+        <div id="idleNote" class="alert-error" style="display:none; border-color:var(--warning); color:var(--warning);">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            You were signed out due to inactivity.
+        </div>
+
         {{-- Error alert --}}
         @if ($errors->any())
         <div class="alert-error">
@@ -333,6 +339,14 @@
         btn.setAttribute('aria-pressed', reveal ? 'true' : 'false');
         btn.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
     }
+
+    // If the idle-timeout logged the user out, explain why (client-only flag).
+    try {
+        if (sessionStorage.getItem('sessionExpired')) {
+            document.getElementById('idleNote').style.display = 'flex';
+            sessionStorage.removeItem('sessionExpired');
+        }
+    } catch (e) {}
 </script>
 </body>
 </html>
