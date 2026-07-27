@@ -112,12 +112,6 @@
         <div id="fleet-map"></div>
         <div class="map-skeleton" id="mapSkeleton" aria-hidden="true"></div>
 
-        {{-- Live status pill --}}
-        <div class="live-pill" id="live-pill">
-            <span class="fdot fdot-on"></span>
-            <span style="color:var(--subtle);">Live</span>
-            <span class="mono" style="color:var(--subtle);" id="live-pill-time">—</span>
-        </div>
 
         {{-- Destination route strip (click a vehicle; hidden until then) --}}
         <div id="route-strip" class="hist-summary" style="display:none;">
@@ -162,6 +156,21 @@
             <span class="hs-leg"><span class="hs-swatch" style="background:#f59e0b;"></span>60–110</span>
             <span class="hs-leg"><span class="hs-swatch" style="background:#ef4444;"></span>&gt;110 km/h</span>
         </div>
+    </div>
+
+    {{-- Map controls (top-center): fit-all · base layer · fullscreen --}}
+    <div class="map-controls">
+        <button class="map-ctrl-btn" onclick="fitAllVehicles()" title="Fit all vehicles in view" aria-label="Fit all vehicles">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="map-ctrl-btn" id="mapLayerBtn" onclick="toggleBaseLayer()" title="Switch base layer" aria-label="Switch base layer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            <span id="mapLayerLabel">Satellite</span>
+        </button>
+        <button class="map-ctrl-btn" id="mapFsBtn" onclick="toggleMapFullscreen()" title="Fullscreen map" aria-label="Toggle fullscreen">
+            <svg id="fsExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+            <svg id="fsCompress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+        </button>
     </div>
 
     {{-- Alerts panel (floating right) --}}
@@ -330,6 +339,32 @@ html[data-theme="light"] .chip-accent { border-color: rgba(0,119,182,0.4); }
 .map-skeleton.is-hidden { display: none; }
 @media (prefers-reduced-motion: reduce) { .map-skeleton::after { animation: none; } }
 
+/* ── Map controls toolbar (top-center) ── */
+.map-controls {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 750; display: flex; gap: 4px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.map-ctrl-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: transparent; border: none; border-radius: 999px;
+    padding: 6px 11px; color: var(--subtle); cursor: pointer;
+    font-family: var(--font-mono); font-size: 11px; transition: background .15s, color .15s;
+}
+.map-ctrl-btn:hover { background: var(--muted); color: var(--accent); }
+.map-ctrl-btn.active { color: var(--accent); }
+.map-ctrl-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* Satellite base layer: drop the dark tile filter (class-scoped, not #id). */
+.map-sat .leaflet-tile-pane { filter: none !important; }
+
+/* Fullscreen: fill the screen and keep the map filling the canvas. */
+.map-canvas:fullscreen, .map-canvas:-webkit-full-screen { background: var(--bg); }
+.map-canvas:fullscreen .map-wrap, .map-canvas:-webkit-full-screen .map-wrap {
+    position: absolute; inset: 0; height: 100%; border: none; border-radius: 0;
+}
+
 .float-panel {
     position: absolute; z-index: 700;
     background: var(--surface); border: 1px solid var(--border);
@@ -388,12 +423,6 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
     color: var(--danger); font-size: 12px; cursor: pointer;
 }
 
-.live-pill {
-    position: absolute; left: 260px; bottom: 12px; z-index: 700;
-    display: flex; align-items: center; gap: 7px;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 999px; padding: 6px 12px; font-size: 11px;
-}
 
 .hist-summary {
     position: absolute; left: 12px; right: 254px; bottom: 12px; z-index: 700;
@@ -451,7 +480,6 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
     .fleet-rows  { max-height: 230px; }
     .alerts-panel { width: auto; max-height: 320px; margin-top: 12px; margin-bottom: 0; }
     .alerts-fab  { display: none !important; }
-    .live-pill   { left: 12px; }
     .hist-summary { right: 12px; }
 }
 </style>
@@ -467,10 +495,57 @@ const map = L.map('fleet-map', { zoomControl: false, attributionControl: false }
     .setView([2.1896, 102.2501], 10);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map)
+// Two base layers, toggled by the top-center control. Street (OSM) is default
+// and carries the dark theme filter; satellite (Esri World Imagery) shows raw
+// imagery with the filter removed via the .map-sat class.
+const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'Tiles &copy; Esri',
+});
+streetLayer.addTo(map)
     .on('load', () => document.getElementById('mapSkeleton')?.classList.add('is-hidden'));
 // Fallback so the shimmer never stays up if the tile 'load' event is missed.
 setTimeout(() => document.getElementById('mapSkeleton')?.classList.add('is-hidden'), 4000);
+
+// ── Map controls: base-layer switch, fit-all, fullscreen ──────────────────
+function toggleBaseLayer() {
+    const mapEl = document.getElementById('fleet-map');
+    const btn = document.getElementById('mapLayerBtn');
+    const label = document.getElementById('mapLayerLabel');
+    if (map.hasLayer(satLayer)) {
+        map.removeLayer(satLayer); streetLayer.addTo(map);
+        mapEl.classList.remove('map-sat'); btn.classList.remove('active');
+        label.textContent = 'Satellite';       // button offers the OTHER view
+    } else {
+        map.removeLayer(streetLayer); satLayer.addTo(map);
+        mapEl.classList.add('map-sat'); btn.classList.add('active');
+        label.textContent = 'Street';
+    }
+}
+
+function fitAllVehicles() {
+    if (historyMode) return;                    // history has its own framing
+    const bounds = clusterGroup.getBounds();
+    if (bounds && bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+    }
+}
+
+function toggleMapFullscreen() {
+    const el = document.querySelector('.map-canvas');
+    if (!document.fullscreenElement) {
+        (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
+    } else {
+        (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    }
+}
+document.addEventListener('fullscreenchange', () => {
+    const fs = !!document.fullscreenElement;
+    document.getElementById('fsExpand').style.display = fs ? 'none' : '';
+    document.getElementById('fsCompress').style.display = fs ? '' : 'none';
+    document.getElementById('mapFsBtn')?.classList.toggle('active', fs);
+    setTimeout(() => map.invalidateSize(), 120); // Leaflet must re-measure
+});
 
 // Vehicle markers live in a cluster group so overlapping ones collapse into a
 // single count bubble; a modest radius means clustering only kicks in when
@@ -571,8 +646,6 @@ async function fetchLivePositions() {
         const total = document.querySelectorAll('.frow').length;
         document.getElementById('stat-online').textContent       = onlineCount;
         document.getElementById('fleet-online-label').textContent = onlineCount + '/' + total + ' online';
-        document.getElementById('live-pill-time').textContent =
-            'updated ' + new Date().toLocaleTimeString();
 
     } catch(e) { console.error('Live fetch error:', e); }
 }
@@ -1072,7 +1145,6 @@ function enterHistoryMode() {
     clusterGroup.clearLayers();
 
     document.getElementById('fleet-panel').style.display = 'none';
-    document.getElementById('live-pill').style.display   = 'none';
 }
 
 function exitHistoryMode() {
@@ -1088,7 +1160,6 @@ function exitHistoryMode() {
         applyOnlineFilter();
 
         document.getElementById('fleet-panel').style.display = 'flex';
-        document.getElementById('live-pill').style.display   = 'flex';
         document.getElementById('history-summary').style.display = 'none';
         document.getElementById('history-vehicle').value = '';
     }
