@@ -137,6 +137,19 @@
         }
         .field input::placeholder { color: var(--muted); }
 
+        /* Password reveal toggle */
+        .pw-wrap { position: relative; }
+        .pw-wrap input { padding-right: 44px; }
+        .pw-toggle {
+            position: absolute; top: 0; right: 0; height: 100%;
+            width: 42px; display: flex; align-items: center; justify-content: center;
+            background: none; border: none; cursor: pointer; color: var(--subtle);
+            transition: color 0.15s;
+        }
+        .pw-toggle:hover { color: var(--accent); }
+        .pw-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px; }
+        .pw-toggle svg { width: 17px; height: 17px; }
+
         /* Error state */
         .field.has-error input {
             border-color: var(--danger);
@@ -257,14 +270,23 @@
 
             <div class="field {{ $errors->has('password') ? 'has-error' : '' }}">
                 <label for="password">Password</label>
-                <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    placeholder="••••••••"
-                    autocomplete="current-password"
-                    required
-                >
+                <div class="pw-wrap">
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="••••••••"
+                        autocomplete="current-password"
+                        required
+                    >
+                    <button type="button" class="pw-toggle" id="pwToggle"
+                            onclick="togglePassword()" aria-label="Show password" aria-pressed="false">
+                        {{-- eye (shown while password is hidden) --}}
+                        <svg id="pwEye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        {{-- eye-off (shown while password is visible) --}}
+                        <svg id="pwEyeOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
             </div>
 
             <div class="remember">
@@ -283,5 +305,22 @@
     </div>
 </div>
 
+<script>
+    // Client-only reveal: flips the input type between password/text. The field
+    // name, value, autocomplete and form submission are untouched — nothing is
+    // logged or stored, so this changes visibility only, not security.
+    function togglePassword() {
+        const input  = document.getElementById('password');
+        const eye     = document.getElementById('pwEye');
+        const eyeOff  = document.getElementById('pwEyeOff');
+        const btn     = document.getElementById('pwToggle');
+        const reveal  = input.type === 'password';
+        input.type    = reveal ? 'text' : 'password';
+        eye.style.display    = reveal ? 'none' : '';
+        eyeOff.style.display = reveal ? '' : 'none';
+        btn.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+        btn.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+    }
+</script>
 </body>
 </html>
