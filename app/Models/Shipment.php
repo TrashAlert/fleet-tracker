@@ -82,15 +82,16 @@ class Shipment extends Model
     }
 
     /**
-     * Public-disk URL for the proof-of-delivery photo, or null if none.
-     * Returned as a root-relative path so it resolves against whatever host
-     * the admin is using (localhost / VPN) and is NOT exposed via the
-     * Cloudflare tunnel, which only allows /track. Requires `php artisan storage:link`.
+     * URL for the proof-of-delivery photo, or null if none. Points at the authed,
+     * role-scoped fleet route (FleetController::shipmentPhoto) — the file itself
+     * lives on the PRIVATE disk with no direct static URL, so proofs (which carry
+     * recipient PII) are never served unauthenticated. Route is on /fleet, so it's
+     * reachable on the LAN/VPN but not via the public /track-only tunnel.
      */
     public function getDeliveryPhotoUrlAttribute(): ?string
     {
         return $this->delivery_photo_path
-            ? '/storage/'.ltrim($this->delivery_photo_path, '/')
+            ? route('fleet.api.shipment.photo', $this)
             : null;
     }
 

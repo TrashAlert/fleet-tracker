@@ -311,6 +311,31 @@ class FleetController extends Controller
     }
 
     /**
+     * Stream a shipment's proof-of-delivery photo through an authed, role-scoped
+     * route. Proofs live on the PRIVATE disk (not public/storage) so there is no
+     * direct static URL — only fleet users with access to this shipment can view
+     * it (drivers: own vehicle only, mirroring shipmentDetail). Prevents the
+     * previous "anyone on the LAN / leaked URL" exposure of recipient PII.
+     */
+    public function shipmentPhoto(Shipment $shipment)
+    {
+        $user = auth()->user();
+
+        // Same scoping as shipmentDetail — a driver may only see their own vehicle's proof.
+        if ($user->isDriver() && $user->vehicle_id !== $shipment->vehicle_id) {
+            abort(403);
+        }
+
+        $path = $shipment->delivery_photo_path;
+        if (! $path || ! Storage::disk('local')->exists($path)) {
+            abort(404);
+        }
+
+        // Streamed inline with the correct content-type — renders in the drawer <img>.
+        return Storage::disk('local')->response($path);
+    }
+
+    /**
      * Driver starts a delivery — acknowledges the shipment, pending → in_transit.
      * `delayed` (= late but never started) is startable too, so a shipment that
      * goes late before the driver taps Start can never deadlock.
@@ -422,7 +447,7 @@ class FleetController extends Controller
         $image = $manager->decode($photo->getRealPath())->scaleDown(width: 1280, height: 1280);
         $encoded = $image->encodeUsingFormat(Format::JPEG, quality: 75);
         $photoPath = 'delivery-proofs/'.Str::uuid().'.jpg';
-        Storage::disk('public')->put($photoPath, (string) $encoded);
+        Storage::disk('local')->put($photoPath, (string) $encoded);
 
         $shipment->update([
             'status' => 'delivered',
@@ -500,7 +525,7 @@ class FleetController extends Controller
                 $image = $manager->decode($photo->getRealPath())->scaleDown(width: 1280, height: 1280);
                 $encoded = $image->encodeUsingFormat(Format::JPEG, quality: 75);
                 $photoPath = 'delivery-proofs/'.Str::uuid().'.jpg';
-                Storage::disk('public')->put($photoPath, (string) $encoded);
+                Storage::disk('local')->put($photoPath, (string) $encoded);
             }
 
             $attempts = $shipment->delivery_attempts + 1;

@@ -88,6 +88,8 @@ Route::middleware(['auth', 'active'])->prefix('fleet')->name('fleet.')->group(fu
         ->middleware('role:admin,manager')
         ->name('api.shipment.store');
     Route::get('/api/shipments/{shipment}', [FleetController::class, 'shipmentDetail'])->name('api.shipment.detail');
+    // Proof-of-delivery photo — authed + role-scoped (proofs are stored off the public disk)
+    Route::get('/api/shipments/{shipment}/photo', [FleetController::class, 'shipmentPhoto'])->name('api.shipment.photo');
     Route::patch('/api/shipments/{shipment}/status', [FleetController::class, 'updateShipmentStatus'])
         ->middleware('role:admin,manager')
         ->name('api.shipment.status');
