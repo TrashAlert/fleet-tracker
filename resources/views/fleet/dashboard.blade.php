@@ -490,6 +490,12 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 
+// Escape user-controlled strings before they hit innerHTML (alert messages carry
+// client names, addresses come from customer-submitted tickets) — prevents stored XSS.
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 // ── Map setup ─────────────────────────────────────────────────────────────
 const map = L.map('fleet-map', { zoomControl: false, attributionControl: false })
     .setView([2.1896, 102.2501], 10);
@@ -630,9 +636,9 @@ async function fetchLivePositions() {
 
             markers[v.id].getPopup().setContent(`
                 <div class="vehicle-popup">
-                    <strong>${v.name}</strong><br>
-                    Plate: ${v.plate}<br>
-                    Driver: ${v.driver ?? '—'}<br>
+                    <strong>${escapeHtml(v.name)}</strong><br>
+                    Plate: ${escapeHtml(v.plate)}<br>
+                    Driver: ${escapeHtml(v.driver ?? '—')}<br>
                     Speed: ${(v.speed_kmh ?? 0).toFixed(1)} km/h<br>
                     ${v.is_offline
                         ? '<span style="color:#ef4444">OFFLINE</span>'
@@ -762,8 +768,8 @@ async function fetchNewAlerts() {
             div.innerHTML = `
                 <div class="alert-icon ${alert.type}">${alertIconSvg(alert.type)}</div>
                 <div style="flex:1;min-width:0;">
-                    <div class="alert-msg">${alert.message}</div>
-                    <div class="alert-time">${alert.triggered_at}</div>
+                    <div class="alert-msg">${escapeHtml(alert.message)}</div>
+                    <div class="alert-time">${escapeHtml(alert.triggered_at)}</div>
                 </div>
                 <button onclick="dismissAlert(${alert.id})"
                     style="background:none;border:none;color:var(--subtle);cursor:pointer;font-size:18px;line-height:1;flex-shrink:0;padding:0 4px;">
@@ -835,7 +841,7 @@ async function showVehicleRoute(id) {
         routeView.layers.push(
             L.marker([data.destination.lat, data.destination.lng], { icon: destIcon })
                 .addTo(map)
-                .bindPopup(`<b>${data.tracking_code}</b><br>${data.destination.address}`)
+                .bindPopup(`<b>${escapeHtml(data.tracking_code)}</b><br>${escapeHtml(data.destination.address)}`)
         );
 
         // Road geometry when OSRM answered; dashed straight line as the fallback.

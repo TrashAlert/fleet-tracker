@@ -703,7 +703,7 @@ function showToast(msg, color = 'var(--success)') {
     const t = document.getElementById('toast');
     t.style.display = 'block';
     t.style.borderColor = color;
-    t.innerHTML = `<span class="toast-dot" style="background:${color};"></span>${msg}`;
+    t.innerHTML = `<span class="toast-dot" style="background:${color};"></span>${escapeHtml(msg)}`;
     setTimeout(() => { t.style.display = 'none'; }, 3000);
 }
 
@@ -803,8 +803,8 @@ async function loadDrawer(id) {
         vDiv.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
-                    <div style="font-weight:600; font-size:13px;">${s.vehicle.plate} — ${s.vehicle.name}</div>
-                    <div style="font-size:11px; color:var(--subtle); margin-top:2px;">Driver: ${s.vehicle.driver ?? '—'}</div>
+                    <div style="font-weight:600; font-size:13px;">${escapeHtml(s.vehicle.plate)} — ${escapeHtml(s.vehicle.name)}</div>
+                    <div style="font-size:11px; color:var(--subtle); margin-top:2px;">Driver: ${escapeHtml(s.vehicle.driver ?? '—')}</div>
                 </div>
                 <span class="pill ${s.vehicle.is_offline ? 'pill-offline' : 'pill-online'}">${s.vehicle.is_offline ? 'Offline' : 'Online'}</span>
             </div>
@@ -831,8 +831,8 @@ async function loadDrawer(id) {
             <div style="display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--border); align-items:flex-start;">
                 <div style="flex-shrink:0; margin-top:1px;">${alertIcon(a.type)}</div>
                 <div>
-                    <div style="font-size:11px;">${a.message}</div>
-                    <div style="font-size:10px; color:var(--subtle); margin-top:2px;">${a.triggered_at}</div>
+                    <div style="font-size:11px;">${escapeHtml(a.message)}</div>
+                    <div style="font-size:10px; color:var(--subtle); margin-top:2px;">${escapeHtml(a.triggered_at)}</div>
                 </div>
             </div>
         `).join('');
@@ -874,7 +874,7 @@ function initDrawerMap(s) {
     if (s.vehicle?.latitude && s.vehicle?.longitude) {
         L.marker([s.vehicle.latitude, s.vehicle.longitude], { icon: vehIcon })
             .addTo(drawerMap)
-            .bindPopup(`<b>${s.vehicle.plate}</b><br>${s.vehicle.speed_kmh?.toFixed(1)} km/h`);
+            .bindPopup(`<b>${escapeHtml(s.vehicle.plate)}</b><br>${s.vehicle.speed_kmh?.toFixed(1)} km/h`);
         points.push([s.vehicle.latitude, s.vehicle.longitude]);
     }
 
@@ -898,9 +898,11 @@ function alertIcon(type) {
 }
 
 function infoBlock(id, label, value) {
+    // value is user-controlled (client name/email/phone, etc.) — escape it to
+    // prevent stored XSS from a customer-supplied name reaching this innerHTML.
     document.getElementById(id).innerHTML = `
         <div class="label">${label}</div>
-        <div>${value}</div>
+        <div>${escapeHtml(value)}</div>
     `;
 }
 
