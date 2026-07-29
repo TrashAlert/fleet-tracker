@@ -14,7 +14,9 @@ The entire UI is **server-rendered Blade + Leaflet** — no SPA and no build ste
 ## Features
 
 - **Live fleet map** — vehicle positions, headings and speeds polled every 5s,
-  with per-vehicle trip history playback (speed-colored polylines).
+  with per-vehicle trip history playback (speed-colored polylines). Overlapping
+  vehicles collapse into count-bubble clusters, and the map has fullscreen,
+  fit-all-vehicles, and street/satellite controls.
 - **Role-based access** — `admin`, `manager`, `driver`. Drivers get *scoped
   data*, not just hidden UI: queries are filtered to their assigned vehicle
   server-side. Deactivated accounts are force-logged-out on their next request.
@@ -66,7 +68,8 @@ The entire UI is **server-rendered Blade + Leaflet** — no SPA and no build ste
   and override `config/fleet.php` at boot, so no redeploy is needed; daemon-side
   thresholds take effect after the MQTT subscriber restarts.
 - **Activity log** — automatic audit trail of model changes (with sensitive-field
-  redaction) plus system events (MQTT ingestion, alerts, delivery flow).
+  redaction) plus system events (MQTT ingestion, alerts, delivery flow), with
+  keyword search (plate / name / action) and vehicle/source/date filters.
 - **Email notifications** — shipment created, delivery delayed, delivery
   confirmed (to the client).
 - **Performance page** — per-vehicle analytics (uses MySQL window functions) and
@@ -201,8 +204,19 @@ fleet data while keeping the admin:
 php artisan db:seed --class=PresentationSeeder
 ```
 
-All seeded customer emails use `@example.com` (non-deliverable), so it's safe to
-run even with real mail configured. Seeded drivers log in with `Password@123`.
+Two region-themed variants exist with the same shape and safety — Putrajaya
+(`F` plates, Putrajaya/Cyberjaya landmarks) and Melaka (`M` plates, Melaka
+landmarks):
+
+```bash
+php artisan db:seed --class=PutrajayaSeeder
+php artisan db:seed --class=MelakaSeeder
+```
+
+All three are re-runnable wipe-and-seed and reset the same fleet tables, so
+running one **replaces** the others' data. All seeded customer emails use
+`@example.com` (non-deliverable), so it's safe to run even with real mail
+configured. Seeded drivers log in with `Password@123`.
 
 There is **no self-registration**: admins create manager/driver accounts from
 the Users page. A driver is linked to a vehicle via `users.vehicle_id`.
@@ -239,6 +253,11 @@ All tunables are env-overridable:
 Note the two distinct staleness settings: the short one only drives the
 dashboard's online/offline pill; the long one raises the actual offline alert
 (so brief tunnel drops don't page anyone).
+
+**Session idle timeout** is a Laravel setting, not a `fleet.php` key:
+`SESSION_LIFETIME` (minutes, default `60`) controls how long an idle session lasts.
+A client-side warning + auto-logout (in the layout) warns before expiry and pings
+an authed `keep-alive` route to stay signed in.
 
 ---
 
@@ -348,9 +367,11 @@ sudo supervisorctl start fleet-mqtt-subscriber
 * * * * * cd /var/www/fleet-tracker && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-Point nginx at `/var/www/fleet-tracker/public` and ensure the web user can read
-`storage/app/public` (delivery-proof photos are served from there via
-`storage:link`).
+Point nginx at `/var/www/fleet-tracker/public`. **Delivery-proof photos are
+private** — stored on `storage/app/private/delivery-proofs/` and served only
+through the authenticated, role-scoped route `GET /fleet/api/shipments/{id}/photo`
+(never a public URL). On deploy, run the one-time move of any existing files from
+`storage/app/public/delivery-proofs/` to `storage/app/private/delivery-proofs/`.
 
 ---
 
