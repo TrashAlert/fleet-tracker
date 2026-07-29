@@ -377,4 +377,4 @@ through the authenticated, role-scoped route `GET /fleet/api/shipments/{id}/phot
 
 ## Known issues / open items
 
-1. `pusher/pusher-php-server` and `laravel/sanctum` are unused dependencies.
+_None currently tracked._
