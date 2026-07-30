@@ -732,6 +732,34 @@ class FleetController extends Controller
             'ticket_id' => 'nullable|exists:shipment_tickets,id',
         ]);
 
+        // Idempotency: if this came from a shipment request that was ALREADY
+        // reviewed, never create a duplicate. A prior approval can leave the
+        // shipment created even when its confirmation email failed (fake/bad
+        // address), so without this guard repeated "Create" clicks pile up copies.
+        if (! empty($data['ticket_id'])) {
+            $reviewed = ShipmentTicket::find($data['ticket_id']);
+            if ($reviewed && $reviewed->status !== 'pending') {
+                $existing = $reviewed->created_shipment_id
+                    ? Shipment::find($reviewed->created_shipment_id)
+                    : null;
+
+                if ($existing) {
+                    // Already approved — hand back the shipment that already exists.
+                    return response()->json([
+                        'tracking_code' => $existing->tracking_code,
+                        'id' => $existing->id,
+                        'already_approved' => true,
+                        'message' => "This request was already approved (tracking {$existing->tracking_code}). No new shipment was created.",
+                    ]);
+                }
+
+                // Denied (or approved with no shipment on record) — don't create one.
+                return response()->json([
+                    'message' => 'This shipment request has already been reviewed.',
+                ], 422);
+            }
+        }
+
         // A tier computes the expected date; an explicit date means no tier.
         if (! empty($data['delivery_tier']) && empty($data['expected_delivery_at'])) {
             $data['expected_delivery_at'] = now()->addDays((int) $tiers[$data['delivery_tier']]['days']);
@@ -780,9 +808,13 @@ class FleetController extends Controller
                 'created_shipment_id' => $shipment->id,
             ]);
 
-            $ticket->notify(
-                new ShipmentTicketApprovedNotification($ticket, $shipment)
-            );
+            // Best-effort email — a bad/fake recipient must never fail the approval
+            // (the shipment + ticket update above have already been committed).
+            try {
+                $ticket->notify(new ShipmentTicketApprovedNotification($ticket, $shipment));
+            } catch (\Throwable $e) {
+                report($e);
+            }
 
             ActivityLogger::logEvent(
                 'ticket_approved',
@@ -791,7 +823,11 @@ class FleetController extends Controller
                 ['new_shipment_id' => $shipment->id, 'new_tracking_code' => $shipment->tracking_code]
             );
         } else {
-            $shipment->notify(new ShipmentCreatedNotification($shipment));
+            try {
+                $shipment->notify(new ShipmentCreatedNotification($shipment));
+            } catch (\Throwable $e) {
+                report($e);
+            }
         }
 
         return response()->json([

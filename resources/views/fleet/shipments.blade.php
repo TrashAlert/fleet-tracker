@@ -1362,7 +1362,7 @@ async function submitShipment() {
         }
 
         closeCreateModal();
-        showToast('Shipment ' + json.tracking_code + ' created!');
+        showToast(json.message || ('Shipment ' + json.tracking_code + ' created!'));
         setTimeout(() => location.reload(), 1200);
 
     } catch (networkErr) {
