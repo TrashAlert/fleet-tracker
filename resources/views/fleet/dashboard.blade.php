@@ -43,14 +43,17 @@
 
 {{-- ── History toolbar (swaps in for the chips) ────────────────────────── --}}
 <div class="chip-row" id="history-toolbar" style="display:none;">
-    <select id="history-vehicle" class="history-input">
+    <select id="history-vehicle" class="history-input" onchange="onHistoryVehicleChange()">
         <option value="">Select vehicle…</option>
         @foreach($vehicles as $v)
             <option value="{{ $v->id }}">{{ $v->plate_number }} — {{ $v->name }}</option>
         @endforeach
     </select>
     <input type="date" id="history-date" class="history-input"
+           oninput="updateHistoryDateStatus()" onchange="updateHistoryDateStatus()"
            value="{{ now()->format('Y-m-d') }}" max="{{ now()->format('Y-m-d') }}">
+    <span id="history-date-status" class="hist-date-status"></span>
+    <span id="history-date-chips" class="hist-date-chips"></span>
     <button type="button" onclick="loadTripHistory()" class="chip chip-accent" style="cursor:pointer;">
         <span class="chip-label" style="color:var(--accent); font-weight:600;">Load trip</span>
     </button>
@@ -324,6 +327,18 @@ html[data-theme="light"] .chip-accent { border-color: rgba(0,119,182,0.4); }
 }
 .history-input:focus { border-color: var(--accent); }
 .history-input option { background: var(--surface); }
+
+/* History date-availability hint + quick-pick chips */
+.hist-date-status { font-size: 11px; color: var(--subtle); white-space: nowrap; }
+.hist-date-status.ok { color: var(--success); }
+.hist-date-status.no { color: var(--warning); }
+.hist-date-chips { display: inline-flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.hist-date-chip {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--subtle); font-family: var(--font-mono); font-size: 10px;
+    padding: 5px 8px; cursor: pointer; transition: color .15s, border-color .15s;
+}
+.hist-date-chip:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ── Map canvas + floating panels ── */
 .map-canvas {
@@ -1115,12 +1130,99 @@ function renderPlaybackFrame(skipSlider = false) {
     }
 }
 
+// ── History date availability (which days have GPS data) ──────────────────
+// When a vehicle is picked we fetch the days that actually have telemetry, so
+// the admin sees data vs no-data up front instead of guessing and loading a
+// blank day. The endpoint mirrors tripHistory's driver-scoping server-side.
+let historyDates = new Set();
+const HISTORY_MAX_TODAY = document.getElementById('history-date')?.getAttribute('max') || '';
+
+async function onHistoryVehicleChange() {
+    const id       = document.getElementById('history-vehicle').value;
+    const statusEl = document.getElementById('history-date-status');
+    const chipsEl  = document.getElementById('history-date-chips');
+    const dateEl   = document.getElementById('history-date');
+
+    historyDates = new Set();
+    chipsEl.innerHTML = '';
+    statusEl.textContent = '';
+    statusEl.className = 'hist-date-status';
+    dateEl.removeAttribute('min');
+    if (HISTORY_MAX_TODAY) dateEl.max = HISTORY_MAX_TODAY;
+
+    if (!id) return;
+
+    try {
+        const res = await fetch(`/fleet/api/vehicle/${id}/history-dates`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) return;
+        const dates = await res.json();   // newest-first ["YYYY-MM-DD", …]
+
+        if (!Array.isArray(dates) || dates.length === 0) {
+            statusEl.textContent = 'No GPS data recorded for this vehicle yet';
+            statusEl.className = 'hist-date-status no';
+            return;
+        }
+
+        historyDates = new Set(dates);
+        dateEl.min   = dates[dates.length - 1]; // oldest day with data
+        dateEl.max   = dates[0];                // newest day with data
+        dateEl.value = dates[0];                // jump straight to it
+
+        // Quick-pick chips for the most recent days with data.
+        chipsEl.innerHTML = dates.slice(0, 6).map(d =>
+            `<button type="button" class="hist-date-chip" onclick="pickHistoryDate('${d}')">${fmtChipDate(d)}</button>`
+        ).join('');
+
+        updateHistoryDateStatus();
+    } catch (e) {
+        console.error('History dates error:', e);
+    }
+}
+
+// Live "this day has data / has none" hint next to the date field.
+function updateHistoryDateStatus() {
+    const statusEl = document.getElementById('history-date-status');
+    if (!statusEl || !document.getElementById('history-vehicle').value) return;
+    if (historyDates.size === 0) return; // vehicle-level message already shown
+
+    const date = document.getElementById('history-date').value;
+    if (!date) { statusEl.textContent = ''; statusEl.className = 'hist-date-status'; return; }
+
+    if (historyDates.has(date)) {
+        statusEl.textContent = 'GPS data available';
+        statusEl.className = 'hist-date-status ok';
+    } else {
+        statusEl.textContent = 'No data on this date';
+        statusEl.className = 'hist-date-status no';
+    }
+}
+
+function pickHistoryDate(d) {
+    document.getElementById('history-date').value = d;
+    updateHistoryDateStatus();
+}
+
+// "30 Jul" — parsed as a local date so there's no timezone day-shift.
+function fmtChipDate(d) {
+    const [y, m, day] = d.split('-').map(Number);
+    return new Date(y, m - 1, day).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
 async function loadTripHistory() {
     const vehicleId = document.getElementById('history-vehicle').value;
     const date      = document.getElementById('history-date').value;
 
     if (!vehicleId) { alert('Select a vehicle first.'); return; }
     if (!date)      { alert('Select a date.'); return; }
+
+    // We already know which days have data — give inline feedback instead of a
+    // wasted request + alert when the chosen day is empty.
+    if (historyDates.size && !historyDates.has(date)) {
+        updateHistoryDateStatus();
+        return;
+    }
 
     try {
         const res = await fetch(`/fleet/api/vehicle/${vehicleId}/history?date=${date}`, {
@@ -1240,6 +1342,16 @@ function exitHistoryMode() {
         document.getElementById('fleet-fab').classList.toggle('is-shown', fleetCollapsed);
         document.getElementById('history-summary').style.display = 'none';
         document.getElementById('history-vehicle').value = '';
+
+        // Reset the date-availability UI (hint, chips, constrained range)
+        historyDates = new Set();
+        const histStatus = document.getElementById('history-date-status');
+        histStatus.textContent = '';
+        histStatus.className = 'hist-date-status';
+        document.getElementById('history-date-chips').innerHTML = '';
+        const histDate = document.getElementById('history-date');
+        histDate.removeAttribute('min');
+        if (HISTORY_MAX_TODAY) histDate.max = HISTORY_MAX_TODAY;
     }
 
     fetchLivePositions();

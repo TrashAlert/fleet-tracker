@@ -115,6 +115,30 @@ class FleetController extends Controller
     }
 
     /**
+     * Distinct calendar dates that have GPS telemetry for a vehicle, newest
+     * first. Powers the dashboard History picker's "which days have data" hint
+     * so an admin isn't guessing dates. Same driver-scoping as tripHistory, and
+     * uses DATE(recorded_at) to match tripHistory's whereDate() day boundaries.
+     */
+    public function historyDates(Vehicle $vehicle): JsonResponse
+    {
+        $user = auth()->user();
+
+        // Drivers can only view their own vehicle (mirrors tripHistory).
+        if ($user->isDriver() && $user->vehicle_id !== $vehicle->id) {
+            return response()->json(['error' => 'Unauthorized.'], 403);
+        }
+
+        $dates = GpsTelemetry::where('vehicle_id', $vehicle->id)
+            ->selectRaw('DATE(recorded_at) as d')
+            ->distinct()
+            ->orderByDesc('d')
+            ->pluck('d');
+
+        return response()->json($dates);
+    }
+
+    /**
      * Road route + ETA from a vehicle's live position to its CURRENT delivery
      * destination (the started, in_transit shipment). Fetched on demand when a
      * dashboard user clicks a vehicle — deliberately not part of the live poll,
