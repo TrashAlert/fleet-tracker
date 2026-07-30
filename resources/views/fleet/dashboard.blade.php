@@ -215,13 +215,13 @@
     </div>
 
     {{-- Collapsed alerts badge (shown when panel is closed) --}}
-    <button type="button" class="alerts-fab" id="alerts-fab" style="display:none;" onclick="openAlertsPanel()" title="Show alerts">
+    <button type="button" class="alerts-fab" id="alerts-fab" onclick="openAlertsPanel()" title="Show alerts">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         <span class="mono" id="alerts-fab-count">0</span>
     </button>
 
     {{-- Collapsed fleet badge (shown when the fleet panel is closed) --}}
-    <button type="button" class="fleet-fab" id="fleet-fab" style="display:none;" onclick="openFleetPanel()" title="Show fleet panel">
+    <button type="button" class="fleet-fab" id="fleet-fab" onclick="openFleetPanel()" title="Show fleet panel">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="6" width="15" height="10" rx="1"/><path d="M16 10h3l3 3v3h-6"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>
         <span class="mono">{{ $vehicles->count() }}</span>
     </button>
@@ -380,8 +380,26 @@ html[data-theme="light"] .chip-accent { border-color: rgba(0,119,182,0.4); }
     border-radius: 10px; display: flex; flex-direction: column;
     overflow: hidden;
 }
-.fleet-panel  { left: 12px; top: 12px; bottom: 12px; width: 236px; }
-.alerts-panel { right: 12px; top: 12px; width: 230px; max-height: calc(100% - 24px); }
+.fleet-panel  {
+    left: 12px; top: 12px; bottom: 12px; width: 236px;
+    transform-origin: left center;
+    transition: transform .28s cubic-bezier(.4,0,.2,1), opacity .24s ease;
+}
+.fleet-panel.is-collapsed {
+    transform: translateX(calc(-100% - 24px));
+    opacity: 0;
+    pointer-events: none;
+}
+.alerts-panel {
+    right: 12px; top: 12px; width: 230px; max-height: calc(100% - 24px);
+    transform-origin: right center;
+    transition: transform .28s cubic-bezier(.4,0,.2,1), opacity .24s ease;
+}
+.alerts-panel.is-collapsed {
+    transform: translateX(calc(100% + 24px));
+    opacity: 0;
+    pointer-events: none;
+}
 
 .fp-head {
     display: flex; align-items: center; gap: 8px;
@@ -430,7 +448,10 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
     background: var(--surface); border: 1px solid rgba(239,68,68,0.45);
     border-radius: 999px; padding: 8px 13px;
     color: var(--danger); font-size: 12px; cursor: pointer;
+    opacity: 0; transform: scale(.85); pointer-events: none;
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1), opacity .18s ease;
 }
+.alerts-fab.is-shown { opacity: 1; transform: scale(1); pointer-events: auto; }
 
 .fleet-fab {
     position: absolute; left: 12px; top: 12px; z-index: 700;
@@ -438,8 +459,15 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 999px; padding: 8px 13px;
     color: var(--accent); font-size: 12px; cursor: pointer;
+    opacity: 0; transform: scale(.85); pointer-events: none;
+    transition: transform .2s cubic-bezier(.34,1.56,.64,1), opacity .18s ease;
 }
+.fleet-fab.is-shown { opacity: 1; transform: scale(1); pointer-events: auto; }
 .fleet-fab:hover { border-color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+    .fleet-panel, .fleet-fab, .alerts-panel, .alerts-fab { transition: none; }
+}
 
 
 .hist-summary {
@@ -495,10 +523,12 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
     .map-wrap   { position: relative; inset: auto; height: 420px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
     .float-panel { position: static; margin-bottom: 12px; }
     .fleet-panel { width: auto; display: flex !important; }
+    .fleet-panel.is-collapsed { transform: none; opacity: 1; pointer-events: auto; }
     .fleet-rows  { max-height: 230px; }
     .alerts-panel { width: auto; max-height: 320px; margin-top: 12px; margin-bottom: 0; }
+    .alerts-panel.is-collapsed { transform: none; opacity: 1; pointer-events: auto; }
     .alerts-fab, .fleet-fab { display: none !important; }
-    .fp-collapse-fleet { display: none; }
+    .fp-collapse { display: none; }
     .hist-summary { right: 12px; }
 }
 </style>
@@ -721,28 +751,28 @@ function focusVehicle(id) {
 
 // ── Alerts panel open/collapse ────────────────────────────────────────────
 function openAlertsPanel() {
-    document.getElementById('alerts-panel-wrap').style.display = 'flex';
-    document.getElementById('alerts-fab').style.display = 'none';
+    document.getElementById('alerts-panel-wrap').classList.remove('is-collapsed');
+    document.getElementById('alerts-fab').classList.remove('is-shown');
     if (window.innerWidth <= 900) {
         document.getElementById('alerts-panel-wrap').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 }
 function closeAlertsPanel() {
-    document.getElementById('alerts-panel-wrap').style.display = 'none';
-    document.getElementById('alerts-fab').style.display = 'flex';
+    document.getElementById('alerts-panel-wrap').classList.add('is-collapsed');
+    document.getElementById('alerts-fab').classList.add('is-shown');
 }
 
 // ── Fleet panel open/collapse (mirrors the alerts panel) ──────────────────
 let fleetCollapsed = false;
 function openFleetPanel() {
     fleetCollapsed = false;
-    document.getElementById('fleet-panel').style.display = 'flex';
-    document.getElementById('fleet-fab').style.display = 'none';
+    document.getElementById('fleet-panel').classList.remove('is-collapsed');
+    document.getElementById('fleet-fab').classList.remove('is-shown');
 }
 function closeFleetPanel() {
     fleetCollapsed = true;
-    document.getElementById('fleet-panel').style.display = 'none';
-    document.getElementById('fleet-fab').style.display = 'flex';
+    document.getElementById('fleet-panel').classList.add('is-collapsed');
+    document.getElementById('fleet-fab').classList.add('is-shown');
 }
 
 // ── Alert dismiss (incremental — no full repaint) ─────────────────────────
@@ -1183,7 +1213,7 @@ function enterHistoryMode() {
     clusterGroup.clearLayers();
 
     document.getElementById('fleet-panel').style.display = 'none';
-    document.getElementById('fleet-fab').style.display = 'none';
+    document.getElementById('fleet-fab').classList.remove('is-shown');
 }
 
 function exitHistoryMode() {
@@ -1200,8 +1230,12 @@ function exitHistoryMode() {
 
         // Restore the fleet panel to whatever state it was in before history
         // mode (collapsed → keep the reopen badge instead of forcing it open).
-        document.getElementById('fleet-panel').style.display = fleetCollapsed ? 'none' : 'flex';
-        document.getElementById('fleet-fab').style.display   = fleetCollapsed ? 'flex' : 'none';
+        // Clearing the display override returns it to the stylesheet's flex; the
+        // classes then re-apply the collapsed/expanded state without animating
+        // (it was display:none, so there's no visible transition on the switch).
+        document.getElementById('fleet-panel').style.display = '';
+        document.getElementById('fleet-panel').classList.toggle('is-collapsed', fleetCollapsed);
+        document.getElementById('fleet-fab').classList.toggle('is-shown', fleetCollapsed);
         document.getElementById('history-summary').style.display = 'none';
         document.getElementById('history-vehicle').value = '';
     }
