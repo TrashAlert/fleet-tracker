@@ -34,10 +34,23 @@ class MqttSubscriber extends Command
     public function handle(): int
     {
         $topicPrefix = config('fleet.mqtt_topic_prefix', 'fleet/');
+        $statusTopic = config('mqtt-client.connections.fleet.connection_settings.last_will.topic');
 
         $this->info('Connecting to MQTT broker...');
 
         $mqtt = MQTT::connection();
+
+        // Presence beacon. The configured Last Will publishes "offline" (retained)
+        // if we drop UNgracefully; here we publish "online" for the initial connect
+        // (already established by the time this runs) and re-publish it after every
+        // auto-reconnect, so the retained status is never left stuck at "offline"
+        // once ingestion is back up.
+        if ($statusTopic) {
+            $mqtt->registerConnectedEventHandler(function ($client) use ($statusTopic) {
+                $client->publish($statusTopic, 'online', 1, true);
+            });
+            $mqtt->publish($statusTopic, 'online', 1, true);
+        }
 
         $mqtt->subscribe($topicPrefix.'+/telemetry', function (string $topic, string $payload) {
             $this->processTelemetry($topic, $payload);
@@ -45,7 +58,13 @@ class MqttSubscriber extends Command
 
         $this->info("Subscribed to {$topicPrefix}+/telemetry — waiting for GPS data...");
 
-        $mqtt->loop(true);   // blocks; Supervisor restarts on crash
+        $mqtt->loop(true);   // blocks; auto-reconnects on drop, Supervisor restarts on crash
+
+        // Graceful stop: the Last Will only fires on an UNgraceful drop, so mark
+        // ourselves offline before a clean disconnect.
+        if ($statusTopic) {
+            $mqtt->publish($statusTopic, 'offline', 1, true);
+        }
 
         MQTT::disconnect();
 

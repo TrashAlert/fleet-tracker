@@ -17,7 +17,11 @@ return [
             'protocol'  => MqttClient::MQTT_3_1,
             'client_id' => env('MQTT_CLIENT_ID', 'fleet-laravel'),
 
-            'use_clean_session' => true,
+            // Persistent session (NOT clean). Required for auto_reconnect below —
+            // php-mqtt forbids clean_session + auto_reconnect together — and it lets
+            // the broker queue telemetry (QoS 1) while the daemon is briefly down,
+            // delivering the backlog on reconnect instead of losing those fixes.
+            'use_clean_session' => env('MQTT_CLEAN_SESSION', false),
             'enable_logging'    => true,
             'log_channel'       => null,
             'repository'        => MemoryRepository::class,
@@ -53,11 +57,16 @@ return [
                     'password' => env('MQTT_AUTH_PASSWORD'),
                 ],
 
+                // Presence beacon: if this daemon drops UNgracefully, the broker
+                // auto-publishes "offline" (retained) to the status topic. The
+                // mqtt:subscribe command publishes "online" on connect and after
+                // every reconnect, so a monitor subscribing to this topic always
+                // sees whether GPS ingestion is live.
                 'last_will' => [
-                    'topic'              => null,
-                    'message'            => null,
-                    'quality_of_service' => 0,
-                    'retain'             => false,
+                    'topic'              => env('MQTT_STATUS_TOPIC', 'fleet/system/subscriber/status'),
+                    'message'            => 'offline',
+                    'quality_of_service' => 1,
+                    'retain'             => true,
                 ],
 
                 'connect_timeout'      => env('MQTT_CONNECT_TIMEOUT', 60),
@@ -65,10 +74,14 @@ return [
                 'resend_timeout'       => env('MQTT_RESEND_TIMEOUT', 10),
                 'keep_alive_interval'  => env('MQTT_KEEP_ALIVE_INTERVAL', 60),
 
+                // Reconnect in-process on a dropped broker connection rather than
+                // relying solely on a Supervisor restart. Needs the persistent
+                // session above. If attempts are exhausted the loop throws, the
+                // process exits, and Supervisor autorestart takes over (backstop).
                 'auto_reconnect' => [
-                    'enabled'                            => false,
-                    'max_reconnect_attempts'             => 3,
-                    'delay_between_reconnect_attempts'   => 5,
+                    'enabled'                            => env('MQTT_AUTO_RECONNECT', true),
+                    'max_reconnect_attempts'             => (int) env('MQTT_MAX_RECONNECT_ATTEMPTS', 5),
+                    'delay_between_reconnect_attempts'   => (int) env('MQTT_RECONNECT_DELAY', 5),
                 ],
             ],
         ],
