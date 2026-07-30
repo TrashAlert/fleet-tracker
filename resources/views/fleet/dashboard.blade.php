@@ -115,6 +115,23 @@
         <div id="fleet-map"></div>
         <div class="map-skeleton" id="mapSkeleton" aria-hidden="true"></div>
 
+        {{-- Map controls (top-center): fit-all · base layer · fullscreen.
+             Lives inside .map-wrap so it's anchored to the MAP, not the canvas —
+             on mobile the panels stack above the map, so a canvas-anchored pill
+             would land on the fleet panel instead of over the map. --}}
+        <div class="map-controls">
+            <button class="map-ctrl-btn" onclick="fitAllVehicles()" title="Fit all vehicles in view" aria-label="Fit all vehicles">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button class="map-ctrl-btn" id="mapLayerBtn" onclick="toggleBaseLayer()" title="Switch base layer" aria-label="Switch base layer">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                <span id="mapLayerLabel">Satellite</span>
+            </button>
+            <button class="map-ctrl-btn" id="mapFsBtn" onclick="toggleMapFullscreen()" title="Fullscreen map" aria-label="Toggle fullscreen">
+                <svg id="fsExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                <svg id="fsCompress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+            </button>
+        </div>
 
         {{-- Destination route strip (click a vehicle; hidden until then) --}}
         <div id="route-strip" class="hist-summary" style="display:none;">
@@ -159,21 +176,6 @@
             <span class="hs-leg"><span class="hs-swatch" style="background:#f59e0b;"></span>60–110</span>
             <span class="hs-leg"><span class="hs-swatch" style="background:#ef4444;"></span>&gt;110 km/h</span>
         </div>
-    </div>
-
-    {{-- Map controls (top-center): fit-all · base layer · fullscreen --}}
-    <div class="map-controls">
-        <button class="map-ctrl-btn" onclick="fitAllVehicles()" title="Fit all vehicles in view" aria-label="Fit all vehicles">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
-        <button class="map-ctrl-btn" id="mapLayerBtn" onclick="toggleBaseLayer()" title="Switch base layer" aria-label="Switch base layer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-            <span id="mapLayerLabel">Satellite</span>
-        </button>
-        <button class="map-ctrl-btn" id="mapFsBtn" onclick="toggleMapFullscreen()" title="Fullscreen map" aria-label="Toggle fullscreen">
-            <svg id="fsExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
-            <svg id="fsCompress" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none;"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
-        </button>
     </div>
 
     {{-- Alerts panel (floating right) --}}
