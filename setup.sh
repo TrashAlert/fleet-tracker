@@ -89,7 +89,7 @@ cp .env.example .env
 sed -i "s/DB_DATABASE=.*/DB_DATABASE=${DB_NAME}/" .env
 sed -i "s/DB_USERNAME=.*/DB_USERNAME=${DB_USER}/" .env
 sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=${DB_PASS}/" .env
-sed -i "s/MQTT_PASSWORD=.*/MQTT_PASSWORD=changeme_mqtt/" .env
+sed -i "s/MQTT_AUTH_PASSWORD=.*/MQTT_AUTH_PASSWORD=changeme_mqtt/" .env
 
 composer install --no-dev --optimize-autoloader
 php artisan key:generate
