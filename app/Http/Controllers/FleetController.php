@@ -732,34 +732,6 @@ class FleetController extends Controller
             'ticket_id' => 'nullable|exists:shipment_tickets,id',
         ]);
 
-        // Idempotency: if this came from a shipment request that was ALREADY
-        // reviewed, never create a duplicate. A prior approval can leave the
-        // shipment created even when its confirmation email failed (fake/bad
-        // address), so without this guard repeated "Create" clicks pile up copies.
-        if (! empty($data['ticket_id'])) {
-            $reviewed = ShipmentTicket::find($data['ticket_id']);
-            if ($reviewed && $reviewed->status !== 'pending') {
-                $existing = $reviewed->created_shipment_id
-                    ? Shipment::find($reviewed->created_shipment_id)
-                    : null;
-
-                if ($existing) {
-                    // Already approved — hand back the shipment that already exists.
-                    return response()->json([
-                        'tracking_code' => $existing->tracking_code,
-                        'id' => $existing->id,
-                        'already_approved' => true,
-                        'message' => "This request was already approved (tracking {$existing->tracking_code}). No new shipment was created.",
-                    ]);
-                }
-
-                // Denied (or approved with no shipment on record) — don't create one.
-                return response()->json([
-                    'message' => 'This shipment request has already been reviewed.',
-                ], 422);
-            }
-        }
-
         // A tier computes the expected date; an explicit date means no tier.
         if (! empty($data['delivery_tier']) && empty($data['expected_delivery_at'])) {
             $data['expected_delivery_at'] = now()->addDays((int) $tiers[$data['delivery_tier']]['days']);
@@ -783,51 +755,83 @@ class FleetController extends Controller
         $data['destination_lat'] = (float) $data['destination_lat'];
         $data['destination_lng'] = (float) $data['destination_lng'];
 
-        $shipment = Shipment::create($data);
+        // Serialize creation-from-a-request on the ticket row so two racing
+        // "Approve" clicks can't both create a shipment: the idempotency re-check,
+        // the create, and the approval all run under a row lock (lockForUpdate —
+        // MySQL-only, a no-op on SQLite). Only DB work happens inside; the email is
+        // sent AFTER commit so a slow SMTP can't hold the lock/transaction open.
+        $outcome = DB::transaction(function () use ($data) {
+            $ticket = ! empty($data['ticket_id'])
+                ? ShipmentTicket::whereKey($data['ticket_id'])->lockForUpdate()->first()
+                : null;
 
-        ActivityLogger::logEvent(
-            'shipment_created',
-            "Shipment {$shipment->tracking_code} created for client {$shipment->client_name} — vehicle ID {$shipment->vehicle_id}",
-            'Shipment', $shipment->id, $shipment->tracking_code,
-            ['client_email' => $shipment->client_email, 'expected_at' => $shipment->expected_delivery_at]
-        );
+            // Already reviewed by the time we got the lock → never create a duplicate.
+            if ($ticket && $ticket->status !== 'pending') {
+                $existing = $ticket->created_shipment_id
+                    ? Shipment::find($ticket->created_shipment_id)
+                    : null;
 
-        // Created from a customer shipment request? Approve it — the customer
-        // gets ONE email: ShipmentTicketApprovedNotification (it carries the new
-        // tracking code + link), instead of the generic created email. Only a
-        // still-pending request counts; a stale/reviewed ticket_id degrades to a
-        // normal creation with the normal created email.
-        $ticket = ! empty($data['ticket_id']) ? ShipmentTicket::find($data['ticket_id']) : null;
-        $approving = $ticket && $ticket->status === 'pending';
-
-        if ($approving) {
-            $ticket->update([
-                'status' => 'approved',
-                'reviewed_by' => auth()->id(),
-                'reviewed_at' => now(),
-                'created_shipment_id' => $shipment->id,
-            ]);
-
-            // Best-effort email — a bad/fake recipient must never fail the approval
-            // (the shipment + ticket update above have already been committed).
-            try {
-                $ticket->notify(new ShipmentTicketApprovedNotification($ticket, $shipment));
-            } catch (\Throwable $e) {
-                report($e);
+                return ['kind' => 'already_reviewed', 'shipment' => $existing];
             }
+
+            $shipment = Shipment::create($data);
 
             ActivityLogger::logEvent(
-                'ticket_approved',
-                "Shipment request {$ticket->request_code} approved — shipment {$shipment->tracking_code} created",
-                'ShipmentTicket', $ticket->id, $ticket->request_code,
-                ['new_shipment_id' => $shipment->id, 'new_tracking_code' => $shipment->tracking_code]
+                'shipment_created',
+                "Shipment {$shipment->tracking_code} created for client {$shipment->client_name} — vehicle ID {$shipment->vehicle_id}",
+                'Shipment', $shipment->id, $shipment->tracking_code,
+                ['client_email' => $shipment->client_email, 'expected_at' => $shipment->expected_delivery_at]
             );
-        } else {
-            try {
-                $shipment->notify(new ShipmentCreatedNotification($shipment));
-            } catch (\Throwable $e) {
-                report($e);
+
+            // Created from a still-pending request? Approve it — the customer gets
+            // ONE email (ShipmentTicketApprovedNotification, sent after commit below).
+            if ($ticket) {
+                $ticket->update([
+                    'status' => 'approved',
+                    'reviewed_by' => auth()->id(),
+                    'reviewed_at' => now(),
+                    'created_shipment_id' => $shipment->id,
+                ]);
+
+                ActivityLogger::logEvent(
+                    'ticket_approved',
+                    "Shipment request {$ticket->request_code} approved — shipment {$shipment->tracking_code} created",
+                    'ShipmentTicket', $ticket->id, $ticket->request_code,
+                    ['new_shipment_id' => $shipment->id, 'new_tracking_code' => $shipment->tracking_code]
+                );
+
+                return ['kind' => 'approved', 'shipment' => $shipment, 'ticket' => $ticket];
             }
+
+            return ['kind' => 'created', 'shipment' => $shipment];
+        });
+
+        // A request already reviewed by the time we got the lock: hand back the
+        // existing shipment (idempotent) instead of creating a duplicate.
+        if ($outcome['kind'] === 'already_reviewed') {
+            $existing = $outcome['shipment'];
+
+            return $existing
+                ? response()->json([
+                    'tracking_code' => $existing->tracking_code,
+                    'id' => $existing->id,
+                    'already_approved' => true,
+                    'message' => "This request was already approved (tracking {$existing->tracking_code}). No new shipment was created.",
+                ])
+                : response()->json(['message' => 'This shipment request has already been reviewed.'], 422);
+        }
+
+        // Best-effort email — sent after commit so a bad/fake recipient (or a slow
+        // SMTP) can never fail the approval or hold the DB transaction open.
+        $shipment = $outcome['shipment'];
+        try {
+            if ($outcome['kind'] === 'approved') {
+                $outcome['ticket']->notify(new ShipmentTicketApprovedNotification($outcome['ticket'], $shipment));
+            } else {
+                $shipment->notify(new ShipmentCreatedNotification($shipment));
+            }
+        } catch (\Throwable $e) {
+            report($e);
         }
 
         return response()->json([
