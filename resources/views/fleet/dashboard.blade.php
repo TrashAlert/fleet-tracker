@@ -69,6 +69,9 @@
         <div class="fp-head">
             <span class="fp-title">Fleet</span>
             <span class="mono fp-sub" id="fleet-online-label">—</span>
+            <button type="button" class="fp-collapse fp-collapse-fleet" onclick="closeFleetPanel()" title="Collapse fleet panel">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
         </div>
         <div class="fleet-rows">
             @forelse($vehicles as $v)
@@ -215,6 +218,12 @@
     <button type="button" class="alerts-fab" id="alerts-fab" style="display:none;" onclick="openAlertsPanel()" title="Show alerts">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         <span class="mono" id="alerts-fab-count">0</span>
+    </button>
+
+    {{-- Collapsed fleet badge (shown when the fleet panel is closed) --}}
+    <button type="button" class="fleet-fab" id="fleet-fab" style="display:none;" onclick="openFleetPanel()" title="Show fleet panel">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="6" width="15" height="10" rx="1"/><path d="M16 10h3l3 3v3h-6"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+        <span class="mono">{{ $vehicles->count() }}</span>
     </button>
 
 </div>
@@ -423,6 +432,15 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
     color: var(--danger); font-size: 12px; cursor: pointer;
 }
 
+.fleet-fab {
+    position: absolute; left: 12px; top: 12px; z-index: 700;
+    display: flex; align-items: center; gap: 7px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 8px 13px;
+    color: var(--accent); font-size: 12px; cursor: pointer;
+}
+.fleet-fab:hover { border-color: var(--accent); }
+
 
 .hist-summary {
     position: absolute; left: 12px; right: 254px; bottom: 12px; z-index: 700;
@@ -476,10 +494,11 @@ html[data-theme="light"] .frow-active { background: rgba(0,119,182,0.08); }
     .map-canvas { height: auto; min-height: 0; border: none; border-radius: 0; overflow: visible; }
     .map-wrap   { position: relative; inset: auto; height: 420px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
     .float-panel { position: static; margin-bottom: 12px; }
-    .fleet-panel { width: auto; }
+    .fleet-panel { width: auto; display: flex !important; }
     .fleet-rows  { max-height: 230px; }
     .alerts-panel { width: auto; max-height: 320px; margin-top: 12px; margin-bottom: 0; }
-    .alerts-fab  { display: none !important; }
+    .alerts-fab, .fleet-fab { display: none !important; }
+    .fp-collapse-fleet { display: none; }
     .hist-summary { right: 12px; }
 }
 </style>
@@ -711,6 +730,19 @@ function openAlertsPanel() {
 function closeAlertsPanel() {
     document.getElementById('alerts-panel-wrap').style.display = 'none';
     document.getElementById('alerts-fab').style.display = 'flex';
+}
+
+// ── Fleet panel open/collapse (mirrors the alerts panel) ──────────────────
+let fleetCollapsed = false;
+function openFleetPanel() {
+    fleetCollapsed = false;
+    document.getElementById('fleet-panel').style.display = 'flex';
+    document.getElementById('fleet-fab').style.display = 'none';
+}
+function closeFleetPanel() {
+    fleetCollapsed = true;
+    document.getElementById('fleet-panel').style.display = 'none';
+    document.getElementById('fleet-fab').style.display = 'flex';
 }
 
 // ── Alert dismiss (incremental — no full repaint) ─────────────────────────
@@ -1151,6 +1183,7 @@ function enterHistoryMode() {
     clusterGroup.clearLayers();
 
     document.getElementById('fleet-panel').style.display = 'none';
+    document.getElementById('fleet-fab').style.display = 'none';
 }
 
 function exitHistoryMode() {
@@ -1165,7 +1198,10 @@ function exitHistoryMode() {
         clusterGroup.addLayers(Object.values(markers));
         applyOnlineFilter();
 
-        document.getElementById('fleet-panel').style.display = 'flex';
+        // Restore the fleet panel to whatever state it was in before history
+        // mode (collapsed → keep the reopen badge instead of forcing it open).
+        document.getElementById('fleet-panel').style.display = fleetCollapsed ? 'none' : 'flex';
+        document.getElementById('fleet-fab').style.display   = fleetCollapsed ? 'flex' : 'none';
         document.getElementById('history-summary').style.display = 'none';
         document.getElementById('history-vehicle').value = '';
     }
