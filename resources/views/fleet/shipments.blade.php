@@ -317,7 +317,7 @@
                     style="display:block; width:100%; max-height:220px; object-fit:cover;">
             </a>
             <div id="dProofError" style="display:none; border:1px solid rgba(239,68,68,0.25); border-radius:8px; padding:12px; font-size:11px; color:var(--danger); background:rgba(239,68,68,0.05);">
-                Photo could not be loaded. Check that <span class="mono">php artisan storage:link</span> has been run and that the web server can read <span class="mono">/storage</span> files.
+                Photo could not be loaded. Proof images are served through a secure, sign-in-only link, so this usually means the file is missing on the server or your session has expired &mdash; try reloading the page.
             </div>
         </div>
 
