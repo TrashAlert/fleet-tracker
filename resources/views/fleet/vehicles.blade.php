@@ -35,7 +35,7 @@
 
 {{-- ── Vehicles table ──────────────────────────────────────────────────── --}}
 <div class="card">
-    <div style="overflow-x:auto;">
+    <div class="table-scroll">
         <table class="data-table" id="vehTable">
             <thead>
                 <tr>

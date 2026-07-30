@@ -330,6 +330,23 @@
         .data-table tr:last-child td { border-bottom: none; }
         .data-table tr:hover td { background: rgba(255,255,255,0.02); }
 
+        /* Horizontal-scroll affordance for wide tables on narrow screens: an edge
+           shadow that shows only on the side with hidden content and fades out at
+           the ends. Pure CSS (Lea Verou's scrolling-shadows technique) and
+           self-hiding when nothing overflows, so it's inert on desktop. The
+           "cover" gradients use --surface to blend into the card; the shadow uses
+           --text so the cue reads in both light and dark themes. */
+        .table-scroll {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            background:
+                linear-gradient(to right, var(--surface) 30%, transparent) 0 0 / 44px 100% no-repeat,
+                linear-gradient(to left,  var(--surface) 30%, transparent) 100% 0 / 44px 100% no-repeat,
+                radial-gradient(farthest-side at 0 50%,   color-mix(in srgb, var(--text) 20%, transparent), transparent) 0 0 / 16px 100% no-repeat,
+                radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--text) 20%, transparent), transparent) 100% 0 / 16px 100% no-repeat;
+            background-attachment: local, local, scroll, scroll;
+        }
+
         /* ── Buttons ── */
         .btn {
             display: inline-flex;
@@ -547,9 +564,9 @@
 
             .grid-2, .grid-3 { grid-template-columns: 1fr; gap: 12px; }
 
-            /* Tables scroll horizontally instead of squishing */
+            /* Tables scroll horizontally instead of squishing (see .table-scroll
+               for the edge-shadow affordance + momentum scrolling) */
             .data-table { min-width: 640px; }
-            .card > div[style*="overflow-x"] { -webkit-overflow-scrolling: touch; }
 
             /* Bigger touch targets */
             .btn { padding: 10px 16px; }

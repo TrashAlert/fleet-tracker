@@ -123,7 +123,7 @@
         <span style="font-size:10px; color:var(--subtle);">Page {{ $logs->currentPage() }} of {{ $logs->lastPage() }}</span>
     </div>
 
-    <div style="overflow-x:auto;">
+    <div class="table-scroll">
         <table class="data-table">
             <thead>
                 <tr>

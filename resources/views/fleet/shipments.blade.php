@@ -108,7 +108,7 @@
 
 {{-- ── Shipments Table ──────────────────────────────────────────────────── --}}
 <div class="card">
-    <div style="overflow-x:auto;">
+    <div class="table-scroll">
         <table class="data-table" id="shipTable">
             <thead>
                 <tr>

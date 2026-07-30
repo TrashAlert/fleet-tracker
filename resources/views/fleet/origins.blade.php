@@ -36,7 +36,7 @@
         <span class="card-title">All Warehouses</span>
         <span style="font-size:11px; color:var(--subtle);">{{ $origins->count() }} total</span>
     </div>
-    <div style="overflow-x:auto;">
+    <div class="table-scroll">
         <table class="data-table">
             <thead>
                 <tr>

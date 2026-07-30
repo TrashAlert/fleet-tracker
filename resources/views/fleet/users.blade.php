@@ -17,7 +17,7 @@
         <span class="card-title">All Users</span>
         <span style="font-size:11px; color:var(--subtle);">{{ $users->count() }} accounts</span>
     </div>
-    <div style="overflow-x:auto;">
+    <div class="table-scroll">
         <table class="data-table">
             <thead>
                 <tr>
