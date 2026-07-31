@@ -60,19 +60,42 @@ chmod 640 $CERT_DIR/*.key
 
 echo "=== [5/7] Configuring Mosquitto MQTT broker ==="
 cat > /etc/mosquitto/conf.d/fleet.conf <<MQTT
+# Auth applies to BOTH listeners below (global by default in mosquitto 2.x).
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+acl_file /etc/mosquitto/aclfile
+
+# Listener 1 — the Laravel server, over localhost, TLS (unchanged).
 listener 8883
 cafile /etc/mosquitto/certs/ca.crt
 certfile /etc/mosquitto/certs/server.crt
 keyfile /etc/mosquitto/certs/server.key
 require_certificate false
-allow_anonymous false
-password_file /etc/mosquitto/passwd
+
+# Listener 2 — ESP32 devices, plain MQTT inside the Husarnet VPN (Husarnet
+# encrypts the link, so no TLS here).
+# SECURITY: bind this to the host's Husarnet IPv6 (e.g. "listener 1883 <husarnet-ipv6>")
+# or firewall port 1883 to the Husarnet interface so it is never exposed publicly.
+listener 1883
 MQTT
 
-# Create MQTT user for the Laravel server
+# ACL — least privilege: the server reads/writes the whole fleet namespace (it
+# also publishes its own liveness beacon), while each device may publish ONLY its
+# own vehicle topic. Add a "user ... / topic write fleet/<CLIENT_ID>/#" pair per device.
+cat > /etc/mosquitto/aclfile <<ACL
+user fleet_server
+topic readwrite fleet/#
+
+user esp32_client
+topic write fleet/ESP32_VEHICLE_01/#
+ACL
+chown mosquitto:mosquitto /etc/mosquitto/aclfile
+chmod 640 /etc/mosquitto/aclfile
+
+# MQTT users. Passwords are dev placeholders — change them in production.
 mosquitto_passwd -c -b /etc/mosquitto/passwd fleet_server changeme_mqtt
-# Create MQTT user for each ESP32 device (add more as needed)
-mosquitto_passwd -b /etc/mosquitto/passwd esp32_vehicle_01 changeme_device
+# Device login — MUST match MQTT_USER / MQTT_PASS in the ESP32 firmware.
+mosquitto_passwd -b /etc/mosquitto/passwd esp32_client abc123
 
 systemctl enable mosquitto
 systemctl restart mosquitto
@@ -110,9 +133,10 @@ echo ""
 echo "✅ Setup complete!"
 echo "   Dashboard:       http://your-server/fleet"
 echo "   Client tracking: http://your-server/track"
-echo "   MQTT broker:     your-server:8883 (TLS)"
+echo "   MQTT broker:     localhost:8883 (TLS, Laravel)  |  1883 (plain, ESP32 over Husarnet)"
 echo ""
 echo "⚠️  Remember to:"
-echo "   1. Update MQTT passwords in /etc/mosquitto/passwd"
+echo "   1. Update MQTT passwords in /etc/mosquitto/passwd (match them in the ESP32 firmware)"
 echo "   2. Configure Nginx virtual host for your domain"
-echo "   3. Copy ca.crt to your ESP32 firmware"
+echo "   3. Join THIS host to your Husarnet network; bind/firewall port 1883 to the Husarnet interface"
+echo "   4. In the dashboard, add a Vehicle with MQTT Client ID = ESP32_VEHICLE_01 (exact case)"
